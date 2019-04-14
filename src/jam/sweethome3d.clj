@@ -1,0 +1,356 @@
+;; Developers Guid: http://www.sweethome3d.com/pluginDeveloperGuide.jsp
+
+(ns jam.sweethome3d
+  (:require [clojure.walk :refer [postwalk]])
+  (:import [com.eteks.sweethome3d.model Wall Level]
+           jam.sweethome3d.NReplAction
+           java.util.concurrent.Callable
+           com.eteks.sweethome3d.viewcontroller.ThreadedTaskController
+           com.eteks.sweethome3d.viewcontroller.ThreadedTaskController$ExceptionHandler
+           com.eteks.sweethome3d.swing.SwingViewFactory
+           ))
+
+;; Notes:
+;; - units are in cm
+;; - vaues are floats
+
+;; Questions:
+;; -? how to show vertical dimensions?
+;;    - may have to create a side view plan (with z in the -y direction)
+
+(def state
+  (let [plugin (NReplAction/plugin)
+        homeController (.getHomeController plugin)]
+    (atom {:plugin plugin
+           :home (.getHome plugin)
+           :homeController homeController
+           :planController (.getPlanController homeController)})))
+
+(defn invoke-ui
+  [f]
+  (let [;; Pass in caller's ns for eval to be able to resolve symbols
+        ;; when run in gui thread.
+        ns_      *ns*
+        runnable (reify Runnable
+                   (run [this]
+                     (prn "invoke-ui, runnable: entering")
+                     (binding [*ns* ns_]
+                       (f))))
+        homeView (-> @state :homeController .getView)
+        callable (reify Callable
+                   (call [this]
+                     (prn "invoke-ui, callable: entering")
+                     (.invokeLater homeView runnable)))
+
+        exHandler (reify ThreadedTaskController$ExceptionHandler
+                    (handleException [this ex]
+                      (.printStackTrace ex)))
+
+        taskController (ThreadedTaskController. callable
+                                                "casum repairus"
+                                                exHandler
+                                                (.getUserPreferences (@state :plugin))
+                                                (SwingViewFactory.))]
+    (.executeTask taskController homeView)))
+
+(defn clean-home
+  "Delete everything in the home."
+  []
+  (let [home (:home @state)]
+    (doseq [wall (.getWalls home)] (.deleteWall home wall))
+    (doseq [label (.getLabels home)] (.deleteLabel home label))
+    (doseq [dimensionLine (.getDimensionLines home)] (.deleteDimensionLine home dimensionLine))
+    (doseq [room (.getRooms home)] (.deleteRoom home room))
+    (doseq [level (.getLevels home)] (.deleteLevel home level))
+    (doseq [piece (.getFurniture home)] (.deletePieceOfFurniture home piece))
+    (doseq [polyline (.getPolylines home)] (.deletePolyline home polyline))))
+#_ (clean-home)
+
+(def find1
+  (comp first filter))
+
+(defn to-float
+  [val]
+  (if (number? val)
+    (float val)
+    val))
+#_ (to-float 1)
+
+(defn vals-to-float
+  [coll]
+  (->> coll
+       (map (fn [[k v]]
+              [k (to-float v)]))
+       (into {})))
+#_ (vals-to-float {:x 1 :y 2})
+
+
+(defn pairs
+  "Converts coll to a sequence of pairs of items."
+  [coll]
+  (let [f (fn [val item]
+            (let [val (if (contains? val :last)
+                        (update-in val [:coll] concat [[(:last val) item]])
+                        )]
+              (assoc val :last item)))
+        result (reduce f {:coll []} coll)]
+    (:coll result)))
+
+(defn zip [& colls]
+  (partition (count colls) (apply interleave colls)))
+
+
+;; lenghts in cm
+(def defaults
+  {:level {:total-height 300 ; total height
+           :thickness 25 ; floor
+           :height (- 300 25); empty space
+           }
+   :width 640
+   :wall {:exterior {:thickness 15}
+          :interior {:thickness 10}}})
+
+;; notes:
+;; - by default, adding a level sets its elevation at the highest point above the previous level
+;; - there is a default level
+;; - the floor thickness is part of the level
+;; - walls start on top of the floor thickness
+;; - height is empty volume above floor
+;; - total level height is floor thickness + height
+;; - can set selected level from plan controller setSelectedLevel
+;; - need to add first level via Home.addLevel before adding walls
+;;   adding objects before creating a level will result in creating a
+;;   default level that needs to be configured after the fact
+(defn add-level
+  "Adds a level to the home."
+  [name props]
+  (let [{:keys [elevation thickness height]} (merge (:level defaults) props)
+        level (Level. name (float elevation) (float thickness) (float height))]
+    (-> @state :home (.addLevel level))))
+
+;; select keys :x :y
+;; if v is keyword
+;;   find wall (or throw exception)
+(defn get-wall
+  ([k] (get-wall k true))
+  ([k assert_]
+   (or (-> @state :walls k)
+       (if assert_
+         (throw (Exception. (str "Can't find wall " k)))))))
+#_ (get-wall :house-S-0)
+
+(defn wall-to-clj
+  "Converts a wall to a clojure map based data structure."
+  [wall]
+  {:start {:x (.getXStart wall) :y (.getYStart wall)}
+   :end   {:x (.getXEnd wall)   :y (.getYEnd wall)}})
+
+(def ^:dynamic -eval-key)
+(defn dim
+  [wall]
+  (prn "dim: wall=" wall)
+  (or (-> wall :start -eval-key) ; extract from wall
+      (-> wall -eval-key)))      ; extract from point
+#_ (binding [-eval-key :x]
+     (let [wall (-> :house-S-0 get-wall wall-to-clj)]
+       (eval `(dim ~wall))))
+
+(defn coerce-wall
+  "Coerces value to a wall if a matching wall exists."
+  [v]
+  (if-let [wall (and (keyword? v) (get-wall v false))]
+    (wall-to-clj wall)
+    (if (instance? Wall v)
+      (wall-to-clj v)
+      v)))
+#_ (coerce-wall :foo)
+#_ (coerce-wall :house-E-0)
+
+(defn eval-form
+  "Resolves wall references and evals form."
+  [form k]
+  (binding [-eval-key k]
+    (let [result (eval (postwalk coerce-wall form))
+          ;; auto get active dimension from final form result
+          result (if (map? result)
+                   (dim result)
+                   result)]
+      result)))
+#_ (eval-form '(midpoint :house-N-0) :y)
+#_ (eval-form '(dim :house-S-0) :x)
+#_ (eval-form '(identity (dim :house-S-0)) :x)
+#_ (eval-form '(/ (dim :house-S-0) 2) :x)
+#_ (eval-form '(identity :house-S-0) :x)
+#_ (eval-form '(identity :house-S-0) :y)
+
+;; -? can a cons be evaled?
+#_ (let [i 42] (type `'(~i))) ; Cons
+#_ (let [i 42] (type '(~i))) ; PersistentList
+#_ (let [i 42] (eval `(identity ~i))) ; 42
+#_ (let [i 42] (eval `(identity ~i)))
+
+#_ (let [i 42] (type `(identity ~i)))
+#_ (let [i 42] (instance? clojure.lang.Cons `(identity ~i)))
+#_ (let [i 42] (instance? Cons `(identity ~i)))
+
+
+(defn resolve-walls
+  [point]
+  (let [f (fn [m k v]
+            (let [v (cond
+                      (keyword? v)                    (-> v get-wall coerce-wall :start k)
+                      (list? v)                       (eval-form v k)
+                      (instance? clojure.lang.Cons v) (eval-form v k)
+                      :default                        v)]
+              (assoc m k v)))
+        m (select-keys point [:x :y]) ; list of keys to check
+        m (reduce-kv f {} m)]
+    (merge point m)))
+#_ (resolve-walls {:x :house-W-0})
+#_ (resolve-walls {:x '(identity :house-W-0)})
+
+(defn midval
+  [x1 x2]
+  (/ (+ x1 x2) 2))
+#_ (midval 1 3)
+
+(defn midpoint
+  ([p1 p2]
+   {:x (midval (:x p1) (:x p2))
+    :y (midval (:y p1) (:y p2))})
+  ([wall]
+   (let [wall (if (keyword? wall)
+                (-> wall get-wall wall-to-clj)
+                wall)]
+     (midpoint (wall :start) (wall :end)))))
+#_ (midpoint {:x 0 :y 0} {:x 5 :y 5})
+#_ (midpoint :house-N-0)
+
+#_ {:house-N-0 #(midpoint)}
+#_ '(/ :house-N-0 2)
+#_ '(midpoint :house-N-0)
+;; ? how does it know to take the y coordinate?
+;;   - it knows it is resolving a coordinate
+
+
+;; Notes:
+;; - Walls are created using height (relative to current level) instead of z.
+;; - Wall thickness is applied 1/2 to each side of center.
+;; - Walls can have an associated level but don't by default.
+;; - height should default to the height of the last one unless specified
+(defn add-walls
+  "Add a sequence of connected walls."
+  ([wall-type points]
+   (add-walls wall-type {} points))
+  ([wall-type {:keys [closed? start-at] :as properties} points]
+   (let [normalize (fn [points a]
+                     (let [;; convert to map, extract name if present
+                           point (if (odd? (count a))
+                                   (assoc (apply hash-map (butlast a))
+                                          :name (last a))
+                                   (apply hash-map a))
+                           ;; merge defaults with supplied values
+                           point (merge
+                                  (-> defaults :level (select-keys [:height]))   ;; global defaults
+                                  (-> points last (select-keys [:x :y :height])) ;; last point
+                                  point)
+
+                           ;; resolve references to other walls
+                           ;; ? should/can this join?
+                           point (resolve-walls point)
+
+                           ;; convert all number values to float
+                           point (vals-to-float point)]
+                       
+                       (concat points [point])))
+         points (reduce normalize [] points)
+         
+         points    (if closed?
+                     (concat points [(first points)])
+                     points)
+         make-wall (fn [[p1 p2]]
+                     (prn p1 p2)
+                     (let [wall (Wall. (:x p1) (:y p1)
+                                       (:x p2) (:y p2)
+                                       (-> defaults :wall wall-type :thickness)
+                                       (:height p1))]
+                       (.setHeightAtEnd wall (:height p2))
+                       wall))
+         walls     (map make-wall (pairs points))]
+
+     ;; Add names
+     (doseq [[{:keys [name] :as point} wall] (zip points walls)]
+       (when name
+         (swap! state assoc-in [:walls name] wall)))
+
+     ;; Join walls.
+     (when start-at
+       (prn "joining wall" start-at)
+       (let [start-wall (-> @state :walls start-at)]
+         (if start-wall
+           (.setWallAtStart (first walls) start-wall)
+           (prn "ERROR: failed to find wall:" start-at)
+           )))
+     (doseq [[wall1 wall2] (pairs walls)]
+       (.setWallAtEnd wall1 wall2)
+       (.setWallAtStart wall2 wall1))
+     ;; Close the final corner.
+     (when closed?
+       (.setWallAtStart (first walls) (last walls))
+       (.setWallAtEnd (last walls) (first walls)))
+     
+     ;; Add the walls to the home.
+     (-> @state :planController (.addWalls walls))
+     walls)))
+
+
+;; kids width
+(do 
+  (defn build
+    []
+    (clean-home)
+
+    (let [hw (-> defaults :width)]
+      ;; ========== KIDS LEVEL ==========
+      (add-level "kids" {:elevation 0})
+
+      ;; exterior walls
+      (add-walls :exterior {:closed? true}
+                 [[:x 0    :y 0  :house-E-0]
+                  [:x 1400       :house-S-0]
+                  [        :y hw :house-W-0]
+                  [:x 0          :house-N-0]])
+
+      ;; separate bedroom from main room
+      (add-walls :interior
+                 [[:x 600 :y :house-W-0 :bedroom-0]
+                  [       :y :house-E-0           ]])
+
+      ;; separate bedrooms from each other
+      (add-walls :interior
+                 [[:x :house-N-0 :y '(midpoint :house-N-0) :bedroom-sep-0]
+                  [:x :bedroom-0                                         ]])
+
+      ;; utility room
+      (add-walls :interior
+                 [[:x '(- (dim :house-S-0) 300) :y 0          :utility-0]
+                  [                             :y :house-W-0           ]])
+
+      ;; bath room
+      (add-walls :interior
+                 [[:x :bedroom-0 :y 150]
+                  [:x :utility-0       ]])
+
+      ;; closets
+      (let [entry-width 100]
+        (doseq [i [1 -1]]
+          (add-walls :interior
+                     [[:x '(- (dim :bedroom-0) 75) :y `(+ (dim :bedroom-sep-0) (* ~i ~entry-width))]
+                      [:x :bedroom-0                                                               ]])))
+))
+
+  (invoke-ui build))
+;; - ? auto join? ? do we need to check for intersection?
+
+;; todo: if anchoring at perpendicular wall, only need to supply one start coordinate
+;;       also can adjust start point to match joined wall width

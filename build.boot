@@ -4,9 +4,8 @@
  :resource-paths #{"resources"}
  :dependencies `[
                  [org.clojure/clojure ~(clojure-version)]
-                 [com.github.austinc/jnrepl "1.2"]
-
                  [ch.qos.logback/logback-classic "1.2.3"]
+                 [org.clojure/tools.nrepl "0.2.13"]
 
                  ;; Command to install to local maven repo:
                  ;; See:http://corfield.org/blog/2017/11/17/boot-localrepo/

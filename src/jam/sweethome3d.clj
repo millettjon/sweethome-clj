@@ -2,29 +2,122 @@
 
 (ns jam.sweethome3d
   (:require [clojure.walk :refer [postwalk]])
-  (:import [com.eteks.sweethome3d.model Wall Level]
-           jam.sweethome3d.NReplAction
+  (:import [com.eteks.sweethome3d.model Level Wall Room DimensionLine HomeTexture CatalogTexture]
+           jam.sweethome3d.NReplPlugin
            java.util.concurrent.Callable
            com.eteks.sweethome3d.viewcontroller.ThreadedTaskController
            com.eteks.sweethome3d.viewcontroller.ThreadedTaskController$ExceptionHandler
            com.eteks.sweethome3d.swing.SwingViewFactory
+           com.eteks.sweethome3d.io.HomeXMLHandler
            ))
 
 ;; Notes:
 ;; - units are in cm
-;; - vaues are floats
-
-;; Questions:
-;; -? how to show vertical dimensions?
-;;    - may have to create a side view plan (with z in the -y direction)
+;; - values are floats
 
 (def state
-  (let [plugin (NReplAction/plugin)
+  "Application state is accessed through the Plugin."
+  (let [plugin (NReplPlugin/plugin)
         homeController (.getHomeController plugin)]
     (atom {:plugin plugin
            :home (.getHome plugin)
            :homeController homeController
-           :planController (.getPlanController homeController)})))
+           :planController (.getPlanController homeController)
+           :homeController3D (.getHomeController3D homeController)  ;; display levels, set cameras
+           :userPreferences (.getUserPreferences plugin)
+           :walls {} ; map of walls created
+           })))
+
+;; 3D View Control
+;; (com.eteks.sweethome3d.viewcontroller.Home3DAttributesController.)
+;; plugin getHomeController getHomeController3D
+(defn set-walls-alpha
+  [alpha]
+  (-> @state :home .getEnvironment (.setWallsAlpha alpha)))
+#_ (set-walls-alpha 0.0)
+(set-walls-alpha 0.35)
+#_ (set-walls-alpha 1.0)
+#_ (invoke-ui #(set-walls-alpha 0.0))
+
+;; TexturesCatalog - has list of TexturesCatagory
+;; TexturesCatagory - has list of CatalogTexture
+(defn find-texture
+  [category-name id]
+  (let [catalog  (-> @state :userPreferences .getTexturesCatalog)
+        category (->> catalog .getCategories (filter #(= category-name (.getName %))) first)
+        texture (->> category .getTextures (filter #(= id (.getId %))) first)]
+    (HomeTexture. texture)))
+
+;; Categories are:
+"Fabric" "Floor" "Miscellaneous" "Roof" "Rug" "Sky" "Wall" "Wallpaper" "Wood"
+
+;; ROOM
+;; - points
+;; - level
+;; - ceiling color/texture
+;; - floor color/texture
+;; - name
+;; - area visible, style
+;; -? how to add?
+;;    -? home?
+;;    -? plan controller?
+(defn float-array2
+  [points]
+  (->> points
+       (postwalk #(if (number? %)
+                    (float %)
+                    %))
+       (map float-array)
+       into-array))
+
+;; Make room for north east bedroom.
+;; Note: the room points do not include the wall widths
+#_ (let [room (-> [[7.5 7.5]
+                   [595 7.5]
+                   [595 315]
+                   [7.5 315]]
+                  float-array2
+                  Room.
+                  )]
+     (-> @state :home (.addRoom room))
+     (.setFloorTexture room (find-texture "Floor" "eTeksScopia#english-parquet-1"))
+)
+
+(defn private-method
+  [obj method-name & args]
+  (let [m (first (filter (fn [x] (.. x getName (equals method-name)))
+                         (.. obj getClass getDeclaredMethods)))]
+    (. m (setAccessible true))
+    (. m (invoke obj (into-array Object args)))))
+
+(defn private-field [obj fn-name-string]
+  (let [m (.. obj getClass (getDeclaredField fn-name-string))]
+    (. m (setAccessible true))
+    (. m (get obj))))
+
+;; Note: Need to call private object and method to auto create room around a point.
+(defn create-room
+  [point]
+  (let [controller       (-> @state :planController)
+        roomDrawingState (private-field controller "roomDrawingState")
+        room             (private-method roomDrawingState "createRoomAt" (-> point :x float) (-> point :y float))]
+    room))
+
+;; Create room from point and add floor texture.
+#_ (invoke-ui (fn []
+                (let [room (create-room {:x 100 :y 100})]
+                  (.setFloorTexture room (find-texture "Floor" "eTeksScopia#english-parquet-1"))
+                  room
+                  )))
+
+;; <doorOrWindow level='level0' catalogId='eTeks#doorFrame' name='Door frame' creator='eTeks' model='1' icon='0' x='599.9834' y='271.24023' angle='1.5707964' width='91.4' depth='12.700748' height='208.3' movable='false' dropOnTopElevation='-0.004801229' wallThickness='0.7874016' wallDistance='0.10498688' cutOutShape='M0,0 v1 h1 v-1 z'/>
+
+
+;; DIMENSION
+;; DimensionLine(float xStart, float yStart, float xEnd, float yEnd, float offset)
+#_ (let [[x1 y1 x2 y2 offset] [7.5 7.5, 595.0 7.5, 20.0]
+         line (DimensionLine. x1 y1 x2 y2 offset )]
+     (-> @state :home (.addDimensionLine line)))
 
 (defn invoke-ui
   [f]
@@ -172,9 +265,9 @@
   (binding [-eval-key k]
     (let [result (eval (postwalk coerce-wall form))
           ;; auto get active dimension from final form result
-          result (if (map? result)
-                   (dim result)
-                   result)]
+          result (cond
+                   (map? result) (dim result)
+                   :default result)]
       result)))
 #_ (eval-form '(midpoint :house-N-0) :y)
 #_ (eval-form '(dim :house-S-0) :x)
@@ -195,15 +288,17 @@
 
 
 (defn resolve-walls
-  [point]
+  [point last-point]
   (let [f (fn [m k v]
             (let [v (cond
                       (keyword? v)                    (-> v get-wall coerce-wall :start k)
                       (list? v)                       (eval-form v k)
                       (instance? clojure.lang.Cons v) (eval-form v k)
+                      (fn? v)                         (v (k last-point))
+                      (map? v)                        (k v)
                       :default                        v)]
               (assoc m k v)))
-        m (select-keys point [:x :y]) ; list of keys to check
+        m (select-keys point [:x :y :height]) ; list of keys to check
         m (reduce-kv f {} m)]
     (merge point m)))
 #_ (resolve-walls {:x :house-W-0})
@@ -257,14 +352,14 @@
 
                            ;; resolve references to other walls
                            ;; ? should/can this join?
-                           point (resolve-walls point)
+                           point (resolve-walls point (-> points last))
 
                            ;; convert all number values to float
                            point (vals-to-float point)]
-                       
+
                        (concat points [point])))
          points (reduce normalize [] points)
-         
+
          points    (if closed?
                      (concat points [(first points)])
                      points)
@@ -298,21 +393,20 @@
      (when closed?
        (.setWallAtStart (first walls) (last walls))
        (.setWallAtEnd (last walls) (first walls)))
-     
+
      ;; Add the walls to the home.
      (-> @state :planController (.addWalls walls))
      walls)))
 
 
-;; kids width
-(do 
+(do
   (defn build
     []
     (clean-home)
 
     (let [hw (-> defaults :width)]
-      ;; ========== KIDS LEVEL ==========
-      (add-level "kids" {:elevation 0})
+      ;; ========== BOTTOM LEVEL ==========
+      (add-level "bottom" {:elevation 0})
 
       ;; exterior walls
       (add-walls :exterior {:closed? true}
@@ -347,7 +441,122 @@
           (add-walls :interior
                      [[:x '(- (dim :bedroom-0) 75) :y `(+ (dim :bedroom-sep-0) (* ~i ~entry-width))]
                       [:x :bedroom-0                                                               ]])))
-))
+
+      ;; ========== MAIN LEVEL ==========
+      (add-level "main" {:elevation 300})
+
+      ;; exterior walls
+      (add-walls :exterior {:closed? true}
+                 [[:x 0    :y 0  :house-E-1]
+                  [:x 2300       :house-S-1]
+                  [        :y hw :house-W-1]
+                  [:x 0          :house-N-1]])
+
+      ;; greenhouse
+      (add-walls :interior
+                 [[:x 375 :y 0 ]
+                  [       :y hw]])
+
+      ;; entry
+      (let [bodega-width 475
+            hall-width   125
+            bath-width   125
+            bath-length  (/ bodega-width 2)
+            mud-width    bath-width
+            mud-length   bath-length]
+        (add-walls :interior
+                   [[:x `(- (dim :house-S-1) ~bodega-width) :y 0                            :bodega-N-1]
+                    [                                       :y (- hw hall-width bath-width) :bodega-W-1]
+                    [:x :house-S-1                                                                     ]])
+
+        ;; bath
+        (add-walls :interior
+                   [[:x :bodega-N-1                       :y hw               ]
+                    [                                     :y (- hw bath-width)]
+                    [:x `(- (dim :house-S-1) ~mud-length)                     ]
+                    [                                     :y hw               ]]))
+
+      ;; kitchen
+      (let [stair-width 100
+            fridge-width 80]
+        (add-walls :interior
+                   [[:x `(- (dim :bodega-N-1) (* 2 ~stair-width)) :y 0          ]
+                    [                                             :y :bodega-W-1]
+                    [:x #(- % fridge-width)                                     ]]
+                   ))
+
+      ;; garage
+      (let [garage-width 675]
+        (add-walls :exterior
+                   [[:x :house-S-1          :y hw]
+                    [:x #(+ % garage-width)        :garage-S-1]
+                    [                       :y 0 ]]))
+
+      ;; ========== TOP LEVEL ==========
+      (add-level "top" {:elevation 600})
+
+      (let [peak {:x 1900
+                  :height 450}]
+        (add-walls :exterior {:closed? true}
+                   [[:x 0           :y 0  :height 0   ]
+                    [:x peak              :height peak]
+                    [:x :garage-S-1       :height 0   ]
+                    [               :y hw             ]
+                    [:x peak              :height peak]
+                    [:x 0                 :height 0   ]
+                    ]))
+
+      ;; loft
+      (add-walls :interior
+                      ;; loft start x
+                 [[:x 1110 :y 0  :height 50 :loft-N]
+                  [        :y hw                   ]])
+      ;; stair
+      (add-walls :interior
+                                        ;; loft width
+                 [[:x '(+ (dim :loft-N) 370) :y 0        :stair-N-2]
+                  [                          :y (/ hw 2)           ]])
+
+      ;; closet
+      (add-walls :interior
+                 [[:x :stair-N-2 :y hw]
+                            ;; closet width
+                  [:y (- hw 190)]
+                            ;; stair width
+                                ;; closet width
+                  [:x #(+ % 264 230) :closet-S-2]
+                  [:y hw]
+                  ])
+      ;; bath
+      (add-walls :interior
+                                           ;; stair width
+                 [[:x '(+ (dim :stair-N-2) 264) :y 0]
+                  [                             :y (/ hw 2)]
+                  [:x :closet-S-2]
+                  [:y 0]])
+
+      ;; bedroom
+      (add-walls :interior
+                                            ;; bedroom width
+                 [[:x '(+ (dim :closet-S-2) 320) :y 0]
+                  [:y hw]])
+
+      ;; note: double stairs are 2.64 (1.32 each)
+      ;;       seems too wide, how wide do stairs need to be for a king bed?
+      ;;       can always lift large items over loft
+
+      ;; kitchen/loft start at 1110 = (+ 449 457 204)
+      ;; ? what is slope of wall?
+      ;; ? how high is peak? appears to be at 4.5m (max is 5m)
+      ;; ? what is x coordinate of peak?
+      ;;   basically over the start of the master bedroom
+      ;; ? how high is ceiling at:
+      ;;   - greenhouse wall
+      ;;   - outside of loft
+      ;;   - inside edge of loft
+      ;;   - inside edge of master bedroom
+
+      ))
 
   (invoke-ui build))
 ;; - ? auto join? ? do we need to check for intersection?

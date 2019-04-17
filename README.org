@@ -1,0 +1,12 @@
+* TASKS
+- add doors
+- add windows
+- add stairs
+- add furniture
+- add deck
+* QUESTIONS
+** ? how to show vertical dimensions?
+- may have to create a side view plan (with z in the -y direction)
+* NOTES
+toast message: https://www.geeksforgeeks.org/java-swing-creating-toast-message/
+invisible walls: http://www.sweethome3d.com/blog/2017/05/12/how_to_show_interior_parts_hidden_by_walls.html

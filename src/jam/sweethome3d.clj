@@ -1,7 +1,10 @@
 ;; Developers Guid: http://www.sweethome3d.com/pluginDeveloperGuide.jsp
 
 (ns jam.sweethome3d
-  (:require [clojure.walk :refer [postwalk]])
+  (:require [clojure.walk :refer [postwalk]]
+            [clojure.core.incubator :refer [dissoc-in]]
+            [clojure.test :refer [deftest is are]]
+            [jam.sweethome3d.math :as math])
   (:import [com.eteks.sweethome3d.model Level Wall Room DimensionLine HomeTexture CatalogTexture]
            jam.sweethome3d.NReplPlugin
            java.util.concurrent.Callable
@@ -15,26 +18,47 @@
 ;; - units are in cm
 ;; - values are floats
 
-(def state
-  "Application state is accessed through the Plugin."
-  (let [plugin (NReplPlugin/plugin)
+(defn connected?
+  "Returns true if connected to sweethome3d app."
+  []
+  (-> NReplPlugin/plugin nil? not))
+
+(defn init!
+  [state]
+  (let [plugin NReplPlugin/plugin #_ (NReplPlugin/plugin)
         homeController (.getHomeController plugin)]
-    (atom {:plugin plugin
-           :home (.getHome plugin)
-           :homeController homeController
-           :planController (.getPlanController homeController)
-           :homeController3D (.getHomeController3D homeController)  ;; display levels, set cameras
-           :userPreferences (.getUserPreferences plugin)
-           :walls {} ; map of walls created
-           })))
+    (reset! state
+            {:plugin plugin
+             :home (.getHome plugin)
+             :homeController homeController
+             :planController (.getPlanController homeController)
+             :homeController3D (.getHomeController3D homeController)  ;; display levels, set cameras
+             :userPreferences (.getUserPreferences plugin)
+             :walls [] ; map of walls created
+             })))
+
+(def state
+  (let [a (atom {:walls []})]
+    (if (connected?)
+      (init! a))
+    a))
 
 (defn degrees-to-radians
   [angle]
   (-> angle (/ 180) (* Math/PI)))
 
+(defn radians-to-degrees
+  [angle]
+  (-> angle (* 180) (/ Math/PI)))
+
 (defn set-compass
   [angle]
-  (-> @state :home .getCompass (.setNorthDirection (degrees-to-radians angle))))
+  (-> @state :home .getCompass (.setNorthDirection angle)))
+
+(defn get-compass
+  []
+  (-> @state :home .getCompass .getNorthDirection))
+
 
 ;; 3D View Control
 ;; (com.eteks.sweethome3d.viewcontroller.Home3DAttributesController.)
@@ -98,13 +122,14 @@
   [& points]
   (apply merge-with + points))
 
+
 ;; select keys :x :y
 ;; if v is keyword
 ;;   find wall (or throw exception)
 (defn get-wall
   ([k] (get-wall k true))
   ([k assert_]
-   (or (-> @state :walls k)
+   (or (-> @state :walls-idx k)
        (if assert_
          (throw (Exception. (str "Can't find wall " k)))))))
 #_ (get-wall :house-S-0)
@@ -113,7 +138,20 @@
   "Converts a wall to a clojure map based data structure."
   [wall]
   {:start {:x (.getXStart wall) :y (.getYStart wall)}
-   :end   {:x (.getXEnd wall)   :y (.getYEnd wall)}})
+   :end   {:x (.getXEnd wall)   :y (.getYEnd wall)}
+   :thickness (.getThickness wall)
+   })
+
+(defn coerce-wall
+  "Coerces value to a wall if a matching wall exists."
+  [v]
+  (if-let [wall (and (keyword? v) (get-wall v false))]
+    (-> wall :sh wall-to-clj)
+    (if (instance? Wall v)
+      (wall-to-clj v)
+      v)))
+#_ (coerce-wall :foo)
+#_ (coerce-wall :house-E-0)
 
 (defn midval
   [x1 x2]
@@ -127,7 +165,7 @@
     :y (midval (:y p1) (:y p2))})
   ([wall]
    (let [wall (cond
-                (keyword? wall)       (-> wall get-wall wall-to-clj)
+                (keyword? wall)       (-> wall get-wall :sh wall-to-clj)
                 (instance? Wall wall) (-> wall wall-to-clj)
                 :default              wall)]
      (midpoint (wall :start) (wall :end)))))
@@ -137,17 +175,45 @@
 #_ (instance? Wall (-> :house-N-0 get-wall))
 #_ (-> :house-N-0 get-wall wall-to-clj)
 
+
+(defn direction-to-offset
+  "Use the compass setting to convert a direction to an x y offset."
+  ([direction magnitude]
+   (direction-to-offset (get-compass) direction magnitude))
+  ([north direction magnitude]
+   (let [target-angle (case direction
+                        :N 0
+                        :E (/ Math/PI 2)
+                        :S Math/PI
+                        :W (* Math/PI 3/2))
+
+         ;; calculate angle from compass and direction
+         angle (+ north target-angle)
+
+         ;; adjust angle to match java Math
+         ;; rotation is opposite and starts at a 90 degree offset
+         angle (-> angle (* -1) (+ (/ Math/PI 2)))
+
+         ;; adjust magnitude, flip y axis
+         x (-> angle Math/cos Math/round (* magnitude))
+         y (-> angle Math/sin Math/round (* -1 magnitude))]
+     {:x x :y y})))
+
+(deftest direction-to-offset-test
+  (are [expected direction] (= expected (direction-to-offset (-> Math/PI (* 3/2)) direction 1))
+    {:x -1, :y  0}  :N 
+    {:x  1, :y  0}  :S
+    {:x  0, :y -1}  :E 
+    {:x  0, :y  1}  :W 
+    ))
+
 (defn room-point
   "Returns a point in a room based on wall and direction."
   [wall direction]
-  (let [wall   (get-wall wall)
+  (let [wall   (-> wall get-wall :sh)
         mp     (midpoint wall)
-        offset (-> wall .getThickness (/ 2) (+ 1)) ; move 1 unit beyond wall into froom
-        offset (case direction
-                 :W {:y offset}
-                 :E {:y (* -1 offset)}
-                 :S {:x offset}
-                 :N {:x (* -1 offset)})]
+        magnitude (-> wall .getThickness (/ 2) (+ 1)) ; move 1 unit beyond wall into froom
+        offset (direction-to-offset direction magnitude)]
     (add-point mp offset)
     ))
 #_ (room-point :bedroom-sep-0 :N)
@@ -175,16 +241,17 @@
 
 (defn create-room
   [& args]
-  (let [points?                         (-> args count odd?)
-        {:keys [around floor] :as opts} (apply hash-map (if points?
-                                                          (rest args)
-                                                          args))
-        room                            (if points?
-                                          (create-room-from-points (first args))
-                                          (create-room-around opts))]
-    (when floor
-      (->> floor :texture (apply find-texture) (.setFloorTexture room)))
-    room))
+  (when true
+    (let [points?                         (-> args count odd?)
+          {:keys [around floor] :as opts} (apply hash-map (if points?
+                                                            (rest args)
+                                                            args))
+          room                            (if points?
+                                            (create-room-from-points (first args))
+                                            (create-room-around opts))]
+      (when floor
+        (->> floor :texture (apply find-texture) (.setFloorTexture room)))
+      room)))
 
 #_ (.getPropertyNames (get-wall :house-S-1))
 
@@ -198,6 +265,38 @@
 #_ (let [[x1 y1 x2 y2 offset] [7.5 7.5, 595.0 7.5, 20.0]
          line (DimensionLine. x1 y1 x2 y2 offset )]
      (-> @state :home (.addDimensionLine line)))
+
+;; create dimension lines from:
+;; - room
+;; - two walls
+;; auto position, but allow offset to adjust
+
+(defn dimension-line
+  "Adds a dimension line between wall1 and wall2."
+  [wall1 wall2 {:keys [align] :as opts}]
+  (let [[p1 p2] (math/dimension-points
+                 (coerce-wall wall1)
+                 (coerce-wall wall2) opts)
+        line    (DimensionLine. (p1 :x) (p1 :y)
+                                (p2 :x) (p2 :y)
+                                30)]
+    (-> @state :home (.addDimensionLine line))))
+
+;; TODO: need to pass offset out along w/ points
+;;   -? how to know if offset should be positive or negative?
+;;  extension-line-offset ...
+
+#_ (dimension-line :house-W-1 :house-E-1 {:align :outside})
+
+
+#_ (dimension-line :house-E-1 :house-W-1 {:align :outside})
+#_ (dimension-line :house-E-1 :house-W-1 {:align :center})
+#_ (dimension-line :house-E-1 :house-W-1 {:align :inside})
+#_ (dimension-line :house-N-1 :house-S-1 {:align :outside})
+#_ (dimension-line :house-N-1 :greenhouse {:align :inside})
+
+
+
 
 ;; Inspect selected element
 (defn inspect-selected
@@ -285,17 +384,6 @@
   (partition (count colls) (apply interleave colls)))
 
 
-;; lenghts in cm
-(def defaults
-  {:level {:total-height 300 ; total height
-           :thickness 25 ; floor
-           :height (- 300 25); empty space
-           }
-   :width 640
-   :wall {:exterior {:thickness 15}
-          :interior {:thickness 10}
-          :virtual {:thickness 0.5}}})
-
 ;; notes:
 ;; - by default, adding a level sets its elevation at the highest point above the previous level
 ;; - there is a default level
@@ -310,7 +398,7 @@
 (defn add-level
   "Adds a level to the home."
   [name props]
-  (let [{:keys [elevation thickness height]} (merge (:level defaults) props)
+  (let [{:keys [elevation thickness height]} (merge (-> @state :defaults :level) props)
         level (Level. name (float elevation) (float thickness) (float height))]
     (swap! state assoc-in [:levels name] level)
     (-> @state :home (.addLevel level))))
@@ -319,23 +407,12 @@
 (def ^:dynamic -eval-key)
 (defn dim
   [wall]
-  (prn "dim: wall=" wall)
   (or (-> wall :start -eval-key) ; extract from wall
       (-> wall -eval-key)))      ; extract from point
 #_ (binding [-eval-key :x]
      (let [wall (-> :house-S-0 get-wall wall-to-clj)]
        (eval `(dim ~wall))))
 
-(defn coerce-wall
-  "Coerces value to a wall if a matching wall exists."
-  [v]
-  (if-let [wall (and (keyword? v) (get-wall v false))]
-    (wall-to-clj wall)
-    (if (instance? Wall v)
-      (wall-to-clj v)
-      v)))
-#_ (coerce-wall :foo)
-#_ (coerce-wall :house-E-0)
 
 (defn eval-form
   "Resolves wall references and evals form."
@@ -369,7 +446,7 @@
   [point last-point]
   (let [f (fn [m k v]
             (let [v (cond
-                      (keyword? v)                    (-> v get-wall coerce-wall :start k)
+                      (keyword? v)                    (-> v coerce-wall :start k)
                       (list? v)                       (eval-form v k)
                       (instance? clojure.lang.Cons v) (eval-form v k)
                       (fn? v)                         (v (k last-point))
@@ -382,6 +459,56 @@
 #_ (resolve-walls {:x :house-W-0})
 #_ (resolve-walls {:x '(identity :house-W-0)})
 
+(defn direction-to-offset2
+  "Use the compass setting to convert a direction to an x y offset."
+  ([direction magnitude]
+   (direction-to-offset (get-compass) direction magnitude))
+  ([north direction magnitude]
+   (let [target-angle (case direction
+                        :N 0
+                        :E (/ Math/PI 2)
+                        :S Math/PI
+                        :W (* Math/PI 3/2))
+
+         ;; calculate angle from compass and direction
+         angle (+ north target-angle)
+
+         ;; adjust angle to match java Math
+         ;; rotation is opposite and starts at a 90 degree offset
+         angle (-> angle (* -1) (+ (/ Math/PI 2)))
+
+         ;; adjust magnitude, flip y axis
+         x (-> angle Math/cos Math/round (* magnitude))
+         y (-> angle Math/sin Math/round (* -1 magnitude))]
+     {:x x :y y})))
+
+#_ (defn align-wall
+  [{:keys [x1 y1 thickness align] :as p1} {:keys [x y] :as p2}]
+  (if (or (nil? align) (= align :center))
+    [p1 p2]
+    (let [p1     (flip-y p1)
+          p2     (flip-y p2)
+          angle  (points-angle p1 p2)
+          angle  (+ angle (case align
+                            :left  (/ Math/PI 2)
+                            :right (/ Math/PI -2)
+                            :else  (assert false)))
+
+          ;; calculate and apply offset
+          offset {:x (-> angle Math/cos (* thickness 1/2))
+                  :y (-> angle Math/sin (* thickness 1/2))}
+
+          p1 (-> p1 (add-point offset) flip-y)
+          p2 (-> p2 (add-point offset) flip-y)]
+      [p1 p2])))
+
+#_ (deftest align-wall-test
+  (are [expected p1 p2] (= expected (align-wall p1 p2))
+     [{:x 100 :y 100} {:x 200 :y 100}] {:x 100 :y 100 } {:x 200 :y 100}
+     ;; [{:x 100.0 :y 90.0 :align :left :thickness 10} {:x 200.0 :y 90.0}] {:x 100 :y 100 :align :left :thickness 10} {:x 200 :y 100}
+    ;; [{:x 100.0 :y 110.0 :align :right :thickness 10} {:x 200.0 :y 110.0}] {:x 100 :y 100 :align :right :thickness 10} {:x 200 :y 100}
+    ;; [{:x 110.0 :y 100.0 :align :left :thickness 10} {:x 110.0 :y 200.0}] {:x 100 :y 100 :align :left :thickness 10} {:x 100 :y 200}
+    ))
 
 ;; Notes:
 ;; - Walls are created using height (relative to current level) instead of z.
@@ -401,7 +528,8 @@
                                    (apply hash-map a))
                            ;; merge defaults with supplied values
                            point (merge
-                                  (-> defaults :level (select-keys [:height]))   ;; global defaults
+                                  (-> @state :defaults :level (select-keys [:height]))   ;; global defaults
+                                  (-> @state :defaults :wall wall-type (select-keys [:height])) ;; wall type
                                   (-> points last (select-keys [:x :y :height])) ;; last point
                                   point)
 
@@ -419,20 +547,28 @@
                      (concat points [(first points)])
                      points)
          make-wall (fn [[p1 p2]]
-                     (prn p1 p2)
-                     (let [wall (Wall. (:x p1) (:y p1)
-                                       (:x p2) (:y p2)
-                                       (or (:thickness p1)
-                                           (-> defaults :wall wall-type :thickness))
-                                       (:height p1))]
+                     (let [thickness (or (:thickness p1)
+                                         (-> @state :defaults :wall wall-type :thickness))
+                           ;;[p1 p2] (align-wall (assoc p1 :thickness thickness) p2)
+                           wall    (Wall. (:x p1) (:y p1)
+                                          (:x p2) (:y p2)
+                                          thickness
+                                          (:height p1))]
                        (.setHeightAtEnd wall (:height p2))
                        wall))
          walls     (map make-wall (pairs points))]
 
-     ;; Add names
+     ;; Wrap sh wall and save.
      (doseq [[{:keys [name] :as point} wall] (zip points walls)]
-       (when name
-         (swap! state assoc-in [:walls name] wall)))
+       (let [wall-clj {:sh wall :type wall-type}
+             wall-clj (if name
+                        (assoc wall-clj :name name)
+                        wall-clj)]
+         ;; list of all walls
+         (swap! state update-in [:walls] conj wall-clj)
+         ;; indexed by name
+         (when name
+           (swap! state assoc-in [:walls-idx name] wall-clj))))
 
      ;; Join walls.
      (when start-at
@@ -454,13 +590,27 @@
      (-> @state :planController (.addWalls walls))
      walls)))
 
-(defn delete-wall
-  [wall]
-  (let [wall (get-wall wall)]
-    (-> @state :home (.deleteWall wall))
-))
-#_ (delete-wall :entry-temp)
+(defn delete-wall-clj
+  [{:keys [name] :as wall}]
+  ;; (prn "delte-wall-clj: deleting wall" wall)
+   (when name
+     (swap! state dissoc-in [:walls-idx name]))
+  (swap! state update-in [:walls] #(filterv (fn [w] (= w wall)) %))
+  (-> @state :home (.deleteWall (:sh wall))))
 
+(defn delete-wall
+  [kw]
+  (-> kw get-wall delete-wall-clj))
+#_ (invoke-ui (fn [] (delete-wall :mud)))
+
+(defn delete-walls
+  [f]
+  (doseq [wall (-> @state :walls)]
+    (when (f wall)
+      (delete-wall-clj wall))))
+#_ (invoke-ui (fn [] (delete-walls #(= :virtual (:type %)))))
+#_ (get-wall :mud)
+#_ (-> @state :walls)
 
 ;; Stair length
 (let [total-rise     300
@@ -482,219 +632,3 @@
    :length     length
    :angle      angle
    })
-
-(do
-  (defn build
-    []
-    (clean-home)
-
-    (let [hw               (-> defaults :width)
-          wood-floor       {:texture ["Floor" "eTeksScopia#english-parquet-1" :angle 90]}
-          bath-floor       {:texture ["Floor" "OlaKristianHoff#beige_tiles"]}
-          kitchen-floor    {:texture ["Floor" "OlaKristianHoff#beige_brown_tiles"]}
-          concrete         {:texture ["Wall"  "eTeksScopia#concrete-wall-1"]}
-          gray-stone-floor {:texture ["Floor" "eTeksScopia#multi-grey-stones-floor-tiles"]}]
-
-      ;; ========== BOTTOM LEVEL ==========
-      (add-level "bottom" {:elevation 0})
-
-      ;; exterior walls
-      (add-walls :exterior {:closed? true}
-                 [[:x 0    :y 0  :house-E-0]
-                  [:x 1400       :house-S-0]
-                  [        :y hw :house-W-0]
-                  [:x 0          :house-N-0]])
-
-      ;; separate bedroom from main room
-      (add-walls :interior
-                 [[:x 600 :y :house-W-0 :bedroom-0]
-                  [       :y :house-E-0           ]])
-
-      ;; separate bedrooms from each other
-      (add-walls :interior
-                 [[:x :house-N-0 :y '(midpoint :house-N-0) :bedroom-sep-0]
-                  [:x :bedroom-0                                         ]])
-      (create-room :around [:bedroom-sep-0 :E] :floor wood-floor)
-      (create-room :around [:bedroom-sep-0 :W] :floor wood-floor)
-
-      ;; closets
-      (let [entry-width 100]
-        (doseq [i [1 -1]]
-          (add-walls :interior
-                     [[:x '(- (dim :bedroom-0) 75) :y `(+ (dim :bedroom-sep-0) (* ~i ~entry-width))]
-                      [:x :bedroom-0                                                               ]])))
-
-      ;; utility room
-      (add-walls :interior
-                 [[:x '(- (dim :house-S-0) 300) :y 0          :utility-0]
-                  [                             :y :house-W-0           ]])
-      (create-room :around [:utility-0 :S] :floor concrete)
-
-      ;; bath room
-      (add-walls :interior
-                 [[:x :bedroom-0 :y 150 :bath-sep-0]
-                  [:x :utility-0       ]])
-      (create-room :around [:bath-sep-0 :E] :floor bath-floor)
-      (create-room :around [:bath-sep-0 :W] :floor wood-floor)
-
-      ;; ========== MAIN LEVEL ==========
-      (add-level "main" {:elevation 300})
-
-      ;; exterior walls
-      (add-walls :exterior {:closed? true}
-                 [[:x 0    :y 0  :house-E-1]
-                  [:x 2300       :house-S-1]
-                  [        :y hw :house-W-1]
-                  [:x 0          :house-N-1]])
-
-      ;; greenhouse
-      (add-walls :interior
-                 [[:x 375 :y 0 :greenhouse]
-                  [       :y hw           ]])
-      (create-room :around [:greenhouse :N] :floor gray-stone-floor)
-
-      ;; bodega
-      (let [bodega-width 475
-            hall-width   125
-            bath-width   125
-            bath-length  (/ bodega-width 2)
-            mud-width    bath-width
-            mud-length   bath-length]
-        (add-walls :interior
-                   [[:x `(- (dim :house-S-1) ~bodega-width) :y 0                            :bodega-N-1]
-                    [                                       :y (- hw hall-width bath-width) :bodega-W-1]
-                    [:x :house-S-1                                                                     ]])
-        (create-room :around [:bodega-W-1 :E] :floor bath-floor)
-
-        ;; bath
-        (add-walls :interior
-                   [[:x :bodega-N-1                       :y hw                :bath-1-N]
-                    [                                     :y (- hw bath-width) :bath-1-E]
-                    [:x `(- (dim :house-S-1) ~mud-length)                      :bath-1-S]
-                    [                                     :y hw                         ]]))
-      (create-room :around [:bath-1-N :S] :floor bath-floor)
-
-      ;; entry/mud
-      ;; Create a temp a wall to define mud area room.
-      (add-walls :virtual
-                 [[:x :bath-1-S :y :bath-1-E :entry-temp]
-                  [:y :bodega-W-1]])
-      (create-room :around [:entry-temp :S] :floor gray-stone-floor)
-
-      ;; kitchen
-      (let [kitchen-width 500
-            stair-width   (+  100 5)
-            fridge-width  80]
-        (add-walls :interior
-                   [[:x `(- (dim :bodega-N-1) (* 2 ~stair-width)) :y 0                ]
-                    [                                             :y   :bodega-W-1    ]
-                    [:x #(- % fridge-width)                            :thickness 0.5 :kitchen-temp-1]
-                    [:x #(- % (- kitchen-width fridge-width))          :thickness 0.5 :kitchen-temp-2]
-                    [                                             :y 0                ]]))
-      (create-room :around [:kitchen-temp-1 :E] :floor kitchen-floor)
-      (create-room :around [:greenhouse :S] :floor wood-floor)
-
-      ;; garage
-      (let [garage-width 675]
-        (add-walls :exterior
-                   [[:x :house-S-1          :y hw              ]
-                    [:x #(+ % garage-width)        :garage-S-1 ]
-                    [                       :y 0   :thickness 0.5 :garage-temp]
-                    [:x :house-S-1                             ]]))
-      (create-room :around [:house-S-1 :S] :floor concrete)
-
-      ;; delete temp walls
-      (delete-wall :entry-temp)
-      (delete-wall :garage-temp)
-      (delete-wall :kitchen-temp-1)
-      (delete-wall :kitchen-temp-2)
-
-      ;; ========== TOP LEVEL ==========
-      (add-level "top" {:elevation 600})
-
-      (let [peak {:x      1900
-                  :height 450}]
-        (add-walls :exterior {:closed? true}
-                   [[:x 0           :y 0  :height 0   ]
-                    [:x peak              :height peak]
-                    [:x :garage-S-1       :height 0   ]
-                    [               :y hw             ]
-                    [:x peak              :height peak]
-                    [:x 0                 :height 0   ]
-                    ]))
-
-      ;; loft
-      (add-walls :interior
-                      ;; loft start x
-                 [[:x 1110 :y 0  :height 10 :loft-N]
-                  [        :y hw                   ]])
-
-      ;; stair
-      (add-walls :interior
-                                        ;; loft width
-                 [[:x '(+ (dim :loft-N) 370) :y 0        :stair-N-2]
-                  [                          :y (/ hw 2)           ]])
-
-      ;; closet
-      (add-walls :interior
-                 [[:x :stair-N-2 :y hw]
-                            ;; closet width
-                  [:y (- hw 190)]
-                            ;; stair width
-                                ;; closet width
-                  [:x #(+ % 264 230) :closet-S-2]
-                  [:y hw]
-                  ])
-      (create-room :around [:closet-S-2 :N] :floor wood-floor)
-
-      ;; loft room ends at stair wall
-      (add-walls :virtual
-                 [[:x :stair-N-2 :y (/ hw 2) :loft-temp]
-                  [              :y :closet-S-2]])
-      (create-room :around [:loft-temp :N] :floor wood-floor)
-
-
-      ;; bath
-      (add-walls :interior
-                                           ;; stair width
-                 [[:x '(+ (dim :stair-N-2) 264) :y 0       :bath-N-2]
-                  [                             :y (/ hw 2)]
-                  [:x :closet-S-2]
-                  [:y 0]])
-      (create-room :around [:bath-N-2 :S] :floor bath-floor)
-
-      ;; bedroom
-      (add-walls :interior
-                                            ;; bedroom width
-                 [[:x '(+ (dim :closet-S-2) 320) :y 0 :bed-2-S]
-                  [:y hw]])
-
-      (create-room :around [:bed-2-S :N] :floor wood-floor)
-      (create-room :around [:bed-2-S :S] :floor wood-floor)
-;;      (create-room :around [:loft-temp :S] :floor plywood)
-      (delete-wall :loft-temp)
-
-
-      ;; note: double stairs are 2.64 (1.32 each)
-      ;;       seems too wide, how wide do stairs need to be for a king bed?
-      ;;       can always lift large items over loft
-
-      ;; kitchen/loft start at 1110 = (+ 449 457 204)
-      ;; ? what is slope of wall?
-      ;; ? how high is peak? appears to be at 4.5m (max is 5m)
-      ;; ? what is x coordinate of peak?
-      ;;   basically over the start of the master bedroom
-      ;; ? how high is ceiling at:
-      ;;   - greenhouse wall
-      ;;   - outside of loft
-      ;;   - inside edge of loft
-      ;;   - inside edge of master bedroom
-
-
-      (set-walls-alpha 0.0)
-      (set-level "main")
-      (set-compass -90)
-      ))
-
-  (invoke-ui build))
-

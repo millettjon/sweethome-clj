@@ -4,6 +4,7 @@
  :resource-paths #{"resources"}
  :dependencies `[
                  [org.clojure/clojure ~(clojure-version)]
+                 [org.clojure/core.incubator "0.1.4"]
                  [ch.qos.logback/logback-classic "1.2.3"]
                  [org.clojure/tools.nrepl "0.2.13"]
 

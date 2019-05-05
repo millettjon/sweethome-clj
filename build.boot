@@ -32,6 +32,7 @@
   (comp
    (javac)
    (uber :exclude-scope #{"provided"})
+   (sift :to-resource #{#"jam/sweethome3d.*\.clj"})
    (jar  :file "nrepl.jar")
    (sift :include #{#"nrepl.jar"})
    (target)))

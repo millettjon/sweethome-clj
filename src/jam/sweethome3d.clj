@@ -241,13 +241,19 @@
 (defn create-room
   [& args]
   (when true
-    (let [points?                         (-> args count odd?)
-          {:keys [around floor] :as opts} (apply hash-map (if points?
-                                                            (rest args)
-                                                            args))
-          room                            (if points?
-                                            (create-room-from-points (first args))
-                                            (create-room-around opts))]
+    (let [points? (-> args count odd?)
+
+          {:keys [around
+                  floor
+                  name] :as opts} (apply hash-map
+                                         (if points?
+                                           (rest args)
+                                           args))
+          room (if points?
+                 (create-room-from-points (first args))
+                 (create-room-around opts))]
+      (when name
+        (.setName room name))
       (when floor
         (->> floor :texture (apply find-texture) (.setFloorTexture room)))
       room)))

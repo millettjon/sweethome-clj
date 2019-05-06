@@ -64,7 +64,7 @@
 
 (defn dimension-points
   "Calculate the end points of a dimension line between two walls."
-  [wall1 wall2 {:keys [align offset] :as opts}]
+  [wall1 wall2 {:keys [align offset from] :as opts}]
   (let [m (slope wall1)
         _ (assert (= m (slope wall2)) "lines are not parallel")
         _ (assert (align #{:inside :center :outside}) "invalid align value")
@@ -73,15 +73,19 @@
         c1 (y-intercept wall1)
         c2 (y-intercept wall2)
 
-        x1 (-> wall1 :start :x)
-        x2 (-> wall2 :start :x)
+        from (or from :start)
+        to   (if (= from :start)
+               :end
+               :start)
+        x1   (-> wall1 from :x)
+        x2   (-> wall2 from :x)
         ;; distance between lines
-        d  (Math/abs (if (nil? c1)
-                       (- x2 x1)
-                       (/ (- c1 c2)
-                          (Math/sqrt (+ 1 (* m m))))))
+        d    (Math/abs (if (nil? c1)
+                         (- x2 x1)
+                         (/ (- c1 c2)
+                            (Math/sqrt (+ 1 (* m m))))))
 
-        angle (points-angle (wall1 :start) (wall1 :end))
+        angle (points-angle (wall1 from) (wall1 to))
 
         ;; amount to offset points by (excluding extension lines)
         offset (or offset
@@ -90,15 +94,9 @@
                      :center  0
                      :outside 0))
 
-        ;; size of extension lines
-        extension (case align
-                    :inside  0
-                    :center  30
-                    :outside 60)
-
         PI          Math/PI
-        s1          (:start wall1)
-        s2          (:start wall2)
+        s1          (from wall1)
+        s2          (from wall2)
         angle-s1-s2 (points-angle s1 s2)
         tangent     (let [t (+ angle (/ PI 2))]
                       (if (< (Math/abs (- t angle-s1-s2)) (/ PI 2))
@@ -117,7 +115,17 @@
         d  (- d
               (* (:thickness wall1) tf)
               (* (:thickness wall2) tf))
-        p2 (move-point p1 tangent d)]
+        p2 (move-point p1 tangent d)
+
+        ;; size of extension lines
+        ext-angle (- angle (* Math/PI 1/2))
+        ext-l (case align
+                :inside  0
+                :center  30
+                :outside 60)
+        extension (if (= ext-angle tangent)
+                    ext-l
+                    (* -1 ext-l))]
    [p1 p2 extension]))
 
 (deftest dimension-points-test
@@ -130,7 +138,7 @@
     :center
 
     ;; vertical lines; centered
-    [{:x 0. :y 0.} {:x 300. :y 0.} -30]
+    [{:x 0. :y 0.} {:x 300. :y 0.} 30]
     {:start {:x 0 :y 0} :end {:x 0 :y 8000} :thickness 20}
     {:start {:x 300 :y 0} :end {:x 300 :y 8000} :thickness 20}
     :center
@@ -154,7 +162,7 @@
     :inside
 
     ;; vertical lines; outside
-    [{:x -10. :y 0.} {:x 307. :y 0.} -60]
+    [{:x -10. :y 0.} {:x 307. :y 0.} 60]
     {:start {:x 0 :y 0} :end {:x 0 :y 8000} :thickness 20}
     {:start {:x 300 :y 0} :end {:x 300 :y 8000} :thickness 14}
     :outside

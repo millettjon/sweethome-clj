@@ -1,32 +1,9 @@
 (ns jam.sweethome3d.math
-  (:require [clojure.test :refer [deftest are]])
-  )
+  (:require [clojure.test :refer [deftest are]]))
 
-;; Sweethome3d math differences:
-;; - y axis is flipped (uses screen coordinates)
-;; - angles are measured in clockwise direction
-;; - the angle 0 is offset by - PI/2
-;;
-;; Public functions are expected to be called with sweethome3d coordinates
-;; and consist of the following steps:
-;; - convert to java math format
-;; - delegate to private functions
-;; - convert the result back to sweethome3d format
+;; Pure math functions that use coordinates of Java math.
 
-(defn- flip-y
-  "Flips the y axis to convert to/from sh3d/java format."
-  [{:keys [y] :as point}]
-  ;; flip the y axis
-  (assoc point :y (* -1 y)))
-
-(defn- flip-wall-points
-  "Flips the y axis of a walls start and end points."
-  [{:keys [start end] :as wall}]
-  (assoc  wall
-          :start (flip-y start)
-          :end (flip-y end)))
-
-(defn- slope
+(defn slope
   "Returns the slope of a line or nil if the slope is infinite."
   [{:keys [start end] :as line}]
   (let [dx (- (:x end) (:x start))
@@ -34,13 +11,13 @@
     (if-not (zero? dx)
       (/ dy dx))))
 
-(defn- y-intercept
+(defn y-intercept
   "Returns the y intercept a line or nil of there is none."
   [{:keys [start end] :as line}]
   (if-let [m (slope line)]
     (- (:y start) (* m (:x start)))))
 
-(defn- subtract-point
+(defn subtract-point
   "Subtracts points."
   [& points]
   (apply merge-with (fn [v1 v2]
@@ -49,7 +26,7 @@
                         v2))
          points))
 
-(defn- points-angle
+(defn points-angle
   "Returns the angle in radians between p1 and p2."
   [p1 p2]
   (let [p (subtract-point p2 p1)]
@@ -69,7 +46,7 @@
   [f]
   (-> f (* 100) Math/round (/ 100) float))
 
-(defn- move-point
+(defn move-point
   [{:keys [x y] :as point} angle magnitude]
   (let [x1 (Math/cos angle)
         y1 (Math/sin angle)]
@@ -85,9 +62,9 @@
     0 -1, 0 0, (* Math/PI 3/2)
     ))
 
-(defn- -dimension-points
+(defn dimension-points
   "Calculate the end points of a dimension line between two walls."
-  [wall1 wall2 {:keys [align] :as opts}]
+  [wall1 wall2 {:keys [align offset] :as opts}]
   (let [m (slope wall1)
         _ (assert (= m (slope wall2)) "lines are not parallel")
         _ (assert (align #{:inside :center :outside}) "invalid align value")
@@ -107,16 +84,17 @@
         angle (points-angle (wall1 :start) (wall1 :end))
 
         ;; amount to offset points by (excluding extension lines)
-        offset (case align
-                 :inside  30
-                 :center  0
-                 :outside 0)
+        offset (or offset
+                   (case align
+                     :inside  30
+                     :center  0
+                     :outside 0))
 
         ;; size of extension lines
         extension (case align
                     :inside  0
-                    :center  -30
-                    :outside -60)
+                    :center  30
+                    :outside 60)
 
         PI          Math/PI
         s1          (:start wall1)
@@ -143,7 +121,7 @@
    [p1 p2 extension]))
 
 (deftest dimension-points-test
-  (are [expected w1 w2 align] (= expected (-dimension-points w1 w2 {:align align}))
+  (are [expected w1 w2 align] (= expected (dimension-points w1 w2 {:align align}))
   
     ;; horizontal lines; centered
     [{:x 0. :y 0.} {:x 0. :y 300.} -30]
@@ -182,10 +160,3 @@
     :outside
 
     ))
-
-(defn dimension-points
-  "Calculate the end points of a dimension line between two walls."
-  [wall1 wall2 {:keys [align] :as opts}]
-  (let [f       flip-wall-points
-        [p1 p2] (-dimension-points (f wall1) (f wall2) opts)]
-    [(flip-y p1) (flip-y p2)]))

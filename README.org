@@ -1,9 +1,57 @@
+HOUSE
+- metal structure meeting
+- review dimensions on house design
+- get string and long tape measure (or huincha laser) for staking out plot
+- reach out to neigbors about fence
+- reach out about getting point cloud
+
+- import topography into linux (for earth plan design)
+  - file is .dwg (autocad)
+  - librecad/qcad
+  - teighaviewer
+  - lx-viewer
+-? what is hill angle?
+
+kicad - electronic design, circuits
+openscad
+leocad - for building lego designs
+
+
+
+librecad - can't open file
+  Opened dwg file version dwg version 2013.
+  error reading tables in dwg file
+  Cannot open the file
+- need to convert from .dwg to .dxf
+  To convert and then use LibreCAD, you may try the Teigha - file converter. Google for it. It seems they don't provide a free version anymore, but maybe it still works.
+  Or, as a full system, try Draftsight. It's not open source, but they provide a free version. It's more complex than LibreCAD. You can use it as a converter only by opening and saving again as dxf.
+  LibreCAD supports dxf only up to version 2007, to be safe also use ASCI type.
+  LibreCAD only supports 2-D drawings. 
+- oda file converter: https://www.opendesign.com/guestfiles/oda_file_converter
+  - binary packages only deb, rpm
+- autocad is only 2d anyway
+- need to get point cloud data
+  - review chat w/ alex
+
+* LINKS
+javadoc: http://www.sweethome3d.com/javadoc/index.html
+
 * TASKS
+- review floor dimensions
+  - 640cm is exterior dimension?
 - add doors
 - add windows
 - add stairs
 - add furniture
 - add deck
+- setup camera
+  http://www.sweethome3d.com/javadoc/com/eteks/sweethome3d/viewcontroller/HomeController3D.CameraControllerState.html
+  http://www.sweethome3d.com/javadoc/com/eteks/sweethome3d/model/Camera.html
+
+- cassowary constraint solver
+  https://github.com/alexbirkett/kiwi-java
+  - ? how does this compare to core.logic? no math?
+
 * QUESTIONS
 ** ? how to show vertical dimensions?
 - may have to create a side view plan (with z in the -y direction)

@@ -4,8 +4,9 @@
   (:require [clojure.walk :refer [postwalk]]
             [clojure.core.incubator :refer [dissoc-in]]
             [clojure.test :refer [deftest is are]]
-            [jam.sweethome3d.math :as math])
-  (:import [com.eteks.sweethome3d.model Level Wall Room DimensionLine HomeTexture CatalogTexture]
+            [jam.sweethome3d.math-wrap :as math])
+  (:import [com.eteks.sweethome3d.model Level Wall Room DimensionLine HomeTexture CatalogTexture
+            HomePieceOfFurniture]
            jam.sweethome3d.NReplPlugin
            java.util.concurrent.Callable
            com.eteks.sweethome3d.viewcontroller.ThreadedTaskController
@@ -145,7 +146,7 @@
 (defn coerce-wall
   "Coerces value to a wall if a matching wall exists."
   [v]
-  (if-let [wall (and (keyword? v) (get-wall v false))]
+  (if-let [wall (and (keyword? v) (get-wall v))]
     (-> wall :sh wall-to-clj)
     (if (instance? Wall v)
       (wall-to-clj v)
@@ -218,7 +219,6 @@
     ))
 #_ (room-point :bedroom-sep-0 :N)
 
-;; Make room for north east bedroom.
 ;; Note: the room points do not include the wall widths
 (defn create-room-from-points
   [points]
@@ -238,7 +238,6 @@
 #_ (create-room :around [:bedroom-sep-0 :N]
              :floor {:texture ["Floor" "eTeksScopia#english-parquet-1"]})
 
-
 (defn create-room
   [& args]
   (when true
@@ -252,65 +251,33 @@
       (when floor
         (->> floor :texture (apply find-texture) (.setFloorTexture room)))
       room)))
-
 #_ (.getPropertyNames (get-wall :house-S-1))
 
-;; How to set the ceiling texture?
-;; ? Can the walls be retrieved from the Room? Yes
-;;   - from gui, can recompute walls to split walls shared from other rooms
-;;   - from gui, can set wall color and texture
-
-;; DIMENSION
-;; DimensionLine(float xStart, float yStart, float xEnd, float yEnd, float offset)
-#_ (let [[x1 y1 x2 y2 offset] [7.5 7.5, 595.0 7.5, 20.0]
-         line (DimensionLine. x1 y1 x2 y2 offset )]
-     (-> @state :home (.addDimensionLine line)))
-
-;; create dimension lines from:
-;; - room
-;; - two walls
-;; auto position, but allow offset to adjust
 
 (defn dimension-line
   "Adds a dimension line between wall1 and wall2."
   [wall1 wall2 {:keys [align] :as opts}]
-  (let [[p1 p2] (math/dimension-points
-                 (coerce-wall wall1)
-                 (coerce-wall wall2) opts)
-        line    (DimensionLine. (p1 :x) (p1 :y)
-                                (p2 :x) (p2 :y)
-                                30)]
+  (let [[p1 p2 extension] (math/dimension-points
+                           (coerce-wall wall1)
+                           (coerce-wall wall2) opts)
+        line              (DimensionLine. (p1 :x) (p1 :y)
+                                          (p2 :x) (p2 :y)
+                                          extension)]
     (-> @state :home (.addDimensionLine line))))
-
-;; TODO: need to pass offset out along w/ points
-;;   -? how to know if offset should be positive or negative?
-;;  extension-line-offset ...
-
-#_ (dimension-line :house-W-1 :house-E-1 {:align :outside})
-
-
-#_ (dimension-line :house-E-1 :house-W-1 {:align :outside})
-#_ (dimension-line :house-E-1 :house-W-1 {:align :center})
-#_ (dimension-line :house-E-1 :house-W-1 {:align :inside})
-#_ (dimension-line :house-N-1 :house-S-1 {:align :outside})
-#_ (dimension-line :house-N-1 :greenhouse {:align :inside})
-
-
-
 
 ;; Inspect selected element
 (defn inspect-selected
   "Inspects the selected item."
   []
-  (let [items (-> @state :home .getSelectedItems)]
-    (doseq [item items]
-      (prn
-       (cond
-         (instance? Room item) (let [t (-> item .getFloorTexture)]
-                                 {:name (.getName t)
-                                  :catalogId (.getCatalogId t)})
-         :default item
-         )))))
+  (let [items (-> @state :home .getSelectedItems)
+        item (first items)]
+    (prn
+     (cond
+       (instance? Room item) (let [t (-> item .getFloorTexture)]
+                               {:name (.getName t)
+                                :catalogId (.getCatalogId t)})
+       :default item))
+    item))
 #_ (inspect-selected)
 
 (defn invoke-ui
@@ -445,6 +412,7 @@
 (defn resolve-walls
   [point last-point]
   (let [f (fn [m k v]
+            (prn "resolv-walls: m, k, v" m k v)
             (let [v (cond
                       (keyword? v)                    (-> v coerce-wall :start k)
                       (list? v)                       (eval-form v k)
@@ -632,3 +600,81 @@
    :length     length
    :angle      angle
    })
+
+#_ (inspect-selected)
+#_ (-> (inspect-selected) .getCatalog prn)
+
+(defn load-furniture
+  "Loads the furniture object with the given category-name and id."
+  [category-name id]
+  (let [catalog    (-> @state :userPreferences .getFurnitureCatalog)
+        categories (.getCategories catalog)
+        category   (->> categories (filter #(= category-name (.getName %))) first)
+        furniture  (->> category .getFurniture (filter #(= id (.getId %))) first)]
+    furniture))
+;; (doseq [category categories] (prn (.getName category)))
+
+;; Categories
+"Bathroom"
+"Bedroom"
+"Doors and windows"
+"Exterior"
+"Kitchen"
+"Lights"
+"Living room"
+"Lumber"
+"Miscellaneous"
+"Office"
+"Roof"
+"Staircases"
+"Vehicles"
+
+(defn add-door
+  ([furniture wall distance]
+   (add-door furniture wall distance {}))
+  ([furniture wall distance {:keys [width] :as opts}]
+   (let [{:keys [start end thickness] :as wall} (coerce-wall wall)
+         angle                                  (math/points-angle start end)
+         point                                  (if (> distance 0) start end)
+         {:keys [x y] :as center}               (math/move-point point angle distance)
+         door                                   (HomePieceOfFurniture. furniture)]
+     (when width
+       (.setWidth door width))
+     (doto door
+       (.setDepth thickness)
+       (.setAngle angle)
+       (.setX x)
+       (.setY y))
+     (-> @state :home (.addPieceOfFurniture door))
+     door)))
+
+(defn add-furniture
+  [furniture {:keys [x y angle height depth mirrored] :as item}]
+  (prn "add-furniture 1 x, y:" x y)
+  (let [f             (HomePieceOfFurniture. furniture)
+        {:keys [x y]} (resolve-walls item {})
+        ;;x             (eval-form x :x)
+        ;;y             (eval-form x :y)
+        ]
+    (prn "add-furniture 2 x, y:" x y)
+    (doto f
+      (.setX x)
+      (.setY y))
+    (when angle (.setAngle f angle))
+    (when height (.setHeight f height))
+    (when depth (.setDepth f depth))
+    (when mirrored (.setModelMirrored f mirrored))
+    (-> @state :home (.addPieceOfFurniture f))
+    ))
+
+(when false
+  (invoke-ui
+   (fn []
+     (let [furn (load-furniture "Staircases" "OlaKristianHoff#stair_straight_open_stringer")
+           furn (HomePieceOfFurniture. furn)]
+       #_ (doto furn
+            
+            )
+       (-> @state :home (.addPieceOfFurniture furn))
+       )))
+  )

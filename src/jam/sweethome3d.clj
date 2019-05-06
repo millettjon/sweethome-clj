@@ -412,7 +412,7 @@
 (defn resolve-walls
   [point last-point]
   (let [f (fn [m k v]
-            (prn "resolv-walls: m, k, v" m k v)
+            ;; (prn "resolv-walls: m, k, v" m k v)
             (let [v (cond
                       (keyword? v)                    (-> v coerce-wall :start k)
                       (list? v)                       (eval-form v k)
@@ -650,13 +650,11 @@
 
 (defn add-furniture
   [furniture {:keys [x y angle height depth mirrored] :as item}]
-  (prn "add-furniture 1 x, y:" x y)
   (let [f             (HomePieceOfFurniture. furniture)
         {:keys [x y]} (resolve-walls item {})
         ;;x             (eval-form x :x)
         ;;y             (eval-form x :y)
         ]
-    (prn "add-furniture 2 x, y:" x y)
     (doto f
       (.setX x)
       (.setY y))

@@ -26,7 +26,7 @@
           ew               (-> defaults :wall :exterior :thickness)
           ew2              (/ ew 2)
           hw               (- 640 ew)
-          hl               (- 2100 ew)
+          hl               1900
           wood-floor       {:texture ["Floor" "eTeksScopia#english-parquet-1" :angle 90]}
           bath-floor       {:texture ["Floor" "OlaKristianHoff#beige_tiles"]}
           kitchen-floor    {:texture ["Floor" "OlaKristianHoff#beige_brown_tiles"]}
@@ -35,7 +35,8 @@
           door             (load-furniture "Doors and windows" "eTeks#doorFrame")
           stair            (load-furniture "Staircases" "OlaKristianHoff#stair_straight_open_stringer")
           stair-w          80
-          stair-l          500]
+          stair-l          500
+          stair-x          900]
 
       ;; ========== BOTTOM LEVEL ==========
       (add-level "bottom" {:elevation 0})
@@ -89,7 +90,7 @@
         (add-walls :virtual
                    [[:x `(-> :house-S-0 dim (- ~utility-w)) :y :stairs-0-W :stairs-0-N]
                     [:y 0]])
-        (add-furniture stair {:x `(-> :house-S-0 dim (- ~utility-w) (+ (/ ~stair-l 2)))
+        (add-furniture stair {:x        `(-> :house-S-0 dim (- ~utility-w) (+ (/ ~stair-l 2)))
                               :y        (+ ew2 (/ stair-w 2))
                               :angle    (/ Math/PI 2)
                               :depth    stair-l
@@ -120,166 +121,164 @@
         (add-door door :house-W-0 (-> bed-l (+ 150) (* -1)))
         (dimension-line :house-W-0 :house-E-0 {:align :inside :offset (+ utility-w 30)})
         (dimension-line :bedroom-0 :utility-N-0 {:align :inside})
-
         )
 
       ;; ========== MAIN LEVEL ==========
-#_(when false
-    (add-level "main" {:elevation 300})
+      (add-level "main" {:elevation 300})
 
-    (let [greenhouse-w  300
-          living-w      700
-          kitchen-w     400
-          pantry-w      200           
-          pantry-l      375
-          bath-w        110
-          bath-l        200
-          mud-l         bath-l
-          mud-w         bath-w
-          hall-w        (+ 125 (-> defaults :wall :interior :thickness))
-          garage-w      700
-          master-hall-w 100
-          master-w      500
-          master-l      900
-          master-bath-l 400]
+      (let [
+            ;; length blocks
+            greenhouse-w    300
+            living-w        600
+            kitchen-w       400
+            pantry-w        200
+            master-closet-w (+ 55 90 55)
+            master-bath-w   200
+            total-l         (+ greenhouse-w living-w kitchen-w pantry-w master-closet-w master-bath-w)
+            _               (assert (= hl total-l) (str "total length mismatch total-l=" total-l))
+
+            ;; width blocks
+            master-bath-l 400
+            hall-w        110
+            guest-bath-w  110
+            pantry-l      master-bath-l
+            total-w       (+ master-bath-l hall-w guest-bath-w)
+            _             (assert (= hw total-w) (str"total width mismatch total-w=" total-w))
+
+            ;; misc
+            guest-bath-l 200
+            mud-l        guest-bath-l
+            mud-w        guest-bath-w
+            deck-w       300
+            garage-w     700
+            master-w     400
+            master-l     400
+            ]
+
+        ;; Use cassowary:
+        ;; :length [greenhouse living kitchen pantry closet-big master-hall closet-small master-bath]
+        ;; :width [master-bath hall guest-bath] 600 = 375 12 111 12 90
+        ;; 
 
         ;; exterior walls
-      (add-walls :exterior {:closed? true}
-                   [[:x 0    :y 0  :house-E-1]
-                    [:x hl         :house-S-1]
-                    [        :y hw :house-W-1] ; cut out for hall to master wing
-                    [:x #(- % (- mud-l iw2) ) :thickness 0.5 :house-hall-temp]
-                    [:x #(- % (+ master-hall-w iw2)) :house-hall-W]
-                    [:x 0          :house-N-1]])
-      (if-let [room (create-room :around [:house-E-1 :W])]
+        (add-walls :exterior {:closed? true}
+                   [[:x 0 :y 0 :house-E-1]
+                    [:x hl :house-S-1]
+                    [:y (+ hw master-w) :master-W-1]
+                    [:x #(- % master-l) :master-N-1]
+                    [:y #(- % master-w) :house-W-1]
+                    [:x 0 :house-N-1]])
+        (dimension-line :house-E-1 :house-W-1 {:align :outside})
+        (dimension-line :house-S-1 :house-N-1 {:align :outside})
+        (if-let [room (create-room :around [:house-E-1 :W])]
           (doto room
-            (.setAreaYOffset 140)
+            (.setAreaYOffset 0)
             (.setAreaXOffset -400)
             (.setName "Main Floor")
-            (.setNameYOffset 100)
+            (.setNameYOffset -40)
             (.setNameXOffset -400)))
 
-        ;; greenhouse
-        (add-walls :interior
-                   [[:x greenhouse-w :y 0 :greenhouse]
-                    [       :y hw           ]])
-        (create-room :around [:greenhouse :N] :floor gray-stone-floor)
-        #_ (let [furniture (sh/load-furniture "Doors and windows" "eTeks#doorFrame")]
-          (sh/add-door furniture :house-hall-W -100))
-        #_ (let [furniture (sh/load-furniture "Doors and windows" "OlaKristianHoff#window_shop")]
-          (sh/add-door furniture :house-hall-W -300))
+        ;; entry door
+        (add-door door :house-S-1 (-> hall-w (/ 2) (+ mud-w)) {:width 90})
 
-        #_ (let [furniture (sh/load-furniture "Staircases" "OlaKristianHoff#stair_straight_open_stringer")]
-             (sh/add-furniture furniture {:x 300 :y 300}))
+        ;; greenhouse
+        (add-walls :interior [[:x greenhouse-w :y 0 :greenhouse] [:y hw]])
+        (create-room :around [:greenhouse :N] :floor gray-stone-floor)
+        (dimension-line :house-E-1 :house-W-1 {:align :inside})
+        (dimension-line :house-N-1 :greenhouse {:align :center})
+        (add-door door :greenhouse (+ guest-bath-w (/  hall-w 2) ))
+        (add-door door :house-W-1 (- 0 (/ greenhouse-w 2)))
 
         ;; living room
         (add-walls :virtual
-                   [[:x `(+ (dim :greenhouse) ~living-w) :y 0 :living]
+                   [[:x `(+ (dim :greenhouse) ~living-w) :y 0 :living-S]
                     [:y hw]])
         (create-room :around [:greenhouse :S] :floor wood-floor)
+        (dimension-line :living-S :greenhouse {:align :center})
+        (add-door door :house-W-1 (- 0 greenhouse-w (* living-w 1/4)))
 
         ;; kitchen
         (add-walls :virtual
-                   [[:x `(+ (dim :living) ~kitchen-w) :y 0 :kitchen]
-                    [:y pantry-l]
-                    [:x #(- % kitchen-w)]
-                    [:y 0]])
-        (create-room :around [:kitchen :N] :floor kitchen-floor)
+                   [[:x :living-S :y hw :kitchen-N]
+                    [:y #(- % pantry-l) :kitchen-E]
+                    [:x #(+ % kitchen-w)]])
+        (add-walls :interior
+                   [[:x `(-> :living-S dim (+ ~kitchen-w)) :y hw :kitchen-S]
+                    [:y :kitchen-E]])
+        (create-room :around [:kitchen-N :S] :floor kitchen-floor)
 
         ;; pantry
         (add-walls :interior
-                   [[:x :kitchen :y 0]
-                    [:y pantry-l]
-                    [:x #(+ % pantry-w) :pantry-S]
-                    [:y 0]])
-        (create-room :around [:pantry-S :N] :floor wood-floor)
+                   [[:x `(-> :kitchen-S dim (+ ~pantry-w)) :y hw :pantry-S]
+                    [:y #(- % pantry-l)]])
+        (add-walls :virtual
+                   [[:x :kitchen-S :y :kitchen-E]
+                    [:x :pantry-S]])
+        (create-room :around [:pantry-S :N] :floor kitchen-floor)
 
-        ;; laundry/storage
+        ;; master bath
         (add-walls :interior
-                   [[:x :pantry-S :y pantry-l :laundry-W]
+                   [[:x hl :y hw]
+                    [:x #(- % master-bath-w) :master-bath-N]
+                    [:y #(- % master-bath-l) :master-bath-E]
                     [:x hl]])
-        (create-room :around [:pantry-S :S] :floor kitchen-floor)
-
-        ;; mud
-        (add-walls :interior
-                   [[:x (-> hl
-                            (- (/ master-w 2))
-                            (+ (/ master-hall-w 2) iw2))
-                     :y hw :mud]
-                    [:y #(- % mud-w)]])
-        (add-walls :virtual
-                   [[:x :mud :y (- hw bath-w)]
-                    [:y :laundry-W]])
-        (create-room :around [:mud :S] :floor gray-stone-floor)
-
-        ;; bath
-        (add-walls :interior
-                   [[:x (- hl (/ master-w 2) (/ master-hall-w 2) iw2)
-                     :y hw :bath-S-1]
-                    [:y #(- % bath-w)]
-                    [:x #(- % bath-l) :bath-N-1]
-                    [:y hw]
-                    ])
-        (create-room :around [:bath-N-1 :S] :floor kitchen-floor)
-
-        ;; hallway
-        (create-room :around [:mud :N] :floor wood-floor)
-
-        ;; garage
-        (add-walls :exterior
-                   [[:x :house-S-1 :y hw]
-                    [:x #(+ % garage-w) :garage-S ]
-                    [:y 0]])
-        (add-walls :virtual
-                   [[:x :house-S-1 :y 0]
-                    [:x :garage-S]])
-        (create-room :around [:house-S-1 :S] :floor concrete)
-
-        ;; ===== MASTER WING =====
-        ;; Exterior walls
-        (add-walls :exterior
-                   [[:x hl :y hw :master-S]
-                    [:y #(+ % master-l)]
-                    [:x #(- % master-w) :master-N]
-                    [:y hw]])
-        (if-let [room (create-room :around [:house-hall-temp :W])]
-          (doto room
-            (.setAreaYOffset 120)
-            (.setName "Master Wing")
-            (.setNameYOffset 80)))
-
-        ;; bath
-        (add-walls :interior
-                   [[:x :bath-S-1 :y hw :master-bath-S]
-                    [:y #(+ % master-bath-l)]
-                    [:x :master-N]])
-        (create-room :around [:master-bath-S :N] :floor bath-floor)
+        (create-room :around [:master-bath-N :S] :floor bath-floor)
+        (add-door door :master-bath-N (/ master-bath-l 2))
 
         ;; closet
-        (add-walls :interior
-                   [[:x :mud :y hw :master-closet-N]
-                    [:y #(+ % master-bath-l)]
-                    [:x :master-S]])
-        (create-room :around [:master-closet-N :S] :floor wood-floor)
-
-        ;; hall
-        (add-walls :virtual
-                   [[:x :bath-S-1 :y (+ hw master-bath-l) :master-hall-W]
-                    [:x :mud]])
-        (create-room :around [:house-hall-temp :W] :floor wood-floor)
+        (add-walls :interior [[:x :master-bath-N :y :master-bath-E :master-closet-E] [:x :pantry-S]])
+        (add-walls :interior [[:x :master-bath-N :y hw :master-closet-W] [:x :pantry-S]])
+        (create-room :around [:master-bath-N :N] :floor wood-floor)
+        (add-door door :master-closet-E (/ master-closet-w 2))
+        (add-door door :master-closet-W (/ master-closet-w 2))
 
         ;; bedroom
-        (create-room :around [:master-hall-W :W] :floor wood-floor)
-)
+        (create-room :around [:master-closet-W :W] :floor wood-floor)
+        (add-door door :master-N-1 (/ master-w 2))
+
+        ;; entry/mud
+        (add-walls :interior [[:x (- hl mud-l) :y 0 :mud-N] [:y mud-w]])
+        (add-walls :virtual [[:x :mud-N :y mud-w] [:y :master-bath-E]])
+        (create-room :around [:mud-N :S] :floor gray-stone-floor)
+        
+        ;; guest bath
+        (add-walls :interior [[:x :mud-N :y guest-bath-w :guest-bath-W]
+                              [:x #(- % guest-bath-l)]
+                              [:y 0]])
+        (create-room :around [:guest-bath-W :E] :floor bath-floor)
+        (add-door door :guest-bath-W (-> 70 (/ 2) (+ 15) (* -1)) {:width 70})
+
+        ;; hallway
+        (create-room :around [:guest-bath-W :W] :floor wood-floor)
+
+        ;; stair
+        (add-furniture stair {:x        (+ stair-x (/ stair-l 2))
+                              :y        (+ ew2 (/ stair-w 2))
+                              :angle    (/ Math/PI 2)
+                              :depth    stair-l
+                              :mirrored true})
+
+        ;; deck
+        (add-walls :virtual [[:x :house-N-1 :y :house-W-1] [:y #(+ % deck-w)] [:x :master-N-1]])
+        (create-room :around [:house-W-1 :W] :floor gray-stone-floor)
+
+        ;; garage
+        (add-walls :virtual
+                   [[:x :house-S-1 :y 0]
+                    [:x #(+ % garage-w)]
+                    [:y hw]
+                    [:x :house-S-1]])
+        (create-room :around [:house-S-1 :S] :floor concrete)
+        
         )
 
 
-;; ========== TOP LEVEL ==========
-#_      (add-level "top" {:elevation 600})
+      ;; ========== LOFT ==========
+      (add-level "loft" {:elevation 600})
 
-#_      (let [peak {:x      1900
-                    :height 450}]
-          (add-walls :exterior {:closed? true}
+      #_      (let [peak {:x      1900
+                          :height 450}]
+                (add-walls :exterior {:closed? true}
                    [[:x 0           :y 0  :height 0   ]
                     [:x peak              :height peak]
                     [:x :garage-S-1       :height 0   ]

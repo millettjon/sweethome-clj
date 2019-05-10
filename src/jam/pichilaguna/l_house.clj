@@ -42,11 +42,12 @@
       ;; ========== BOTTOM LEVEL ==========
       (add-level "bottom" {:elevation 0})
 
-      (let [hl-0      1200
-            bed-l     500
-            bed-entry 100
-            utility-w 300
-            utility-l 400]
+      (let [hl-0         1200
+            bed-l        500
+            bed-entry-w  120
+            bed-closet-w 75
+            utility-w    300
+            utility-l    400]
         ;; exterior walls
         (add-walls :exterior {:closed? true}
                    [[:x 0    :y 0  :house-E-0]
@@ -78,9 +79,9 @@
         ;; closets
         (doseq [i [1 -1]]
           (add-walls :interior
-                     [[:x '(- (dim :bedroom-0) 75) :y `(+ (dim :bedroom-sep-0) (* ~i ~bed-entry))]
+                     [[:x `(- (dim :bedroom-0) ~bed-closet-w) :y `(+ (dim :bedroom-sep-0) (-> ~hw (/ 2) (- ~bed-entry-w) (* ~i)))]
                       [:x :bedroom-0]])
-          (add-door door :bedroom-0 (+ (* i (/ bed-entry 2)) (/ hw 2)) {:width 80}))
+          (add-door door :bedroom-0 (+ (/ hw 2) (* i (- (/ hw 2) (/ (+ ew2 bed-entry-w) 2)))) {:width 80}))
         (dimension-line :house-E-0 :bedroom-sep-0 {:align :inside})
         (dimension-line :house-N-0 :bedroom-0 {:align :inside})
 
@@ -104,17 +105,17 @@
                     [:y (+ utility-l iw2) :utility-W-0]
                     [:x :house-S-0]])
         (create-room :around [:utility-N-0 :S] :floor concrete :name "utility")
-        (add-door door :utility-N-0 (-> 80 (/ 2) (+ 10) (* -1)) {:width 80})
+        (add-door door :utility-N-0 (-> 80 (/ 2) (+ iw2 45) (* 1)) {:width 80})
+                                                     ;; ^-- 45cm gap to put shelves or panels on wall 
         (dimension-line :utility-W-0 :stairs-0-W {:align :inside})
         (dimension-line :utility-N-0 :house-S-0 {:align :inside})
-
 
         ;; bath room
         (add-walls :interior
                    [[:x :utility-N-0 :y :utility-W-0 :bath-N-0]
                     [:y :house-W-0 ]])
         (create-room :around [:bath-N-0 :S] :floor bath-floor :name "bath")
-        (add-door door :bath-N-0 50 {:width 80})
+        (add-door door :bath-N-0 (-> 80 (/ 2) (+ ew2 10) (* -1)) {:width 80})
         (dimension-line :house-W-0 :utility-W-0 {:align :inside})
 
 

@@ -231,7 +231,7 @@
         ;; closet
         (add-walls :interior [[:x :master-bath-N :y :master-bath-E :master-closet-E] [:x :pantry-S]])
         (add-walls :interior [[:x :master-bath-N :y hw :master-closet-W] [:x :pantry-S]])
-        (create-room :around [:master-bath-N :N] :floor wood-floor :name "closet")
+        (create-room :around [:master-bath-N :N] :floor wood-floor :name "hall/closet")
         (dimension-line :pantry-S :master-bath-N {:align :center})
         (add-door door :master-closet-E (/ master-closet-w 2))
         (add-door door :master-closet-W (/ master-closet-w 2))

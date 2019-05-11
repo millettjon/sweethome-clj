@@ -267,7 +267,10 @@
         ;; deck
         (add-walls :virtual [[:x :house-N-1 :y :house-W-1 :deck-N]
                              [:y #(+ % deck-w) :deck-W]
+                             [:x '(- (dim :master-N-1) 120)]
+                             [:y :master-W-1]
                              [:x :master-N-1]])
+
         (create-room :around [:house-W-1 :W] :floor gray-stone-floor :name  "deck")
         (dimension-line :deck-W :house-W-1 {:align :center})
         (dimension-line :deck-W :house-E-1 {:align :outside})

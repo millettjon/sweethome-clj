@@ -252,7 +252,7 @@
         (create-room :around [:guest-bath-W :E] :floor bath-floor :name "bath")
         (dimension-line :guest-bath-W :house-E-1 {:align :center})
         (dimension-line :master-bath-E :guest-bath-W {:align :center})
-        (add-door door :guest-bath-W (-> 70 (/ 2) (+ 15) (* -1)) {:width 70})
+        (add-door door :guest-bath-W (-> guest-bath-l (/ 2)) {:width 70})
 
         ;; hallway
         (create-room :around [:guest-bath-W :W] :floor wood-floor :name "hall")

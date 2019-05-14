@@ -27,7 +27,7 @@
           ew               (-> defaults :wall :exterior :thickness)
           ew2              (/ ew 2)
           hw               (- 640 ew)
-          hl               1900
+          hl               2000
           wood-floor       {:texture ["Floor" "eTeksScopia#english-parquet-1" :angle 90]}
           bath-floor       {:texture ["Floor" "OlaKristianHoff#beige_tiles"]}
           kitchen-floor    {:texture ["Floor" "OlaKristianHoff#beige_brown_tiles"]}
@@ -35,17 +35,20 @@
           gray-stone-floor {:texture ["Floor" "eTeksScopia#multi-grey-stones-floor-tiles"]}
           door             (load-furniture "Doors and windows" "eTeks#doorFrame")
           stair            (load-furniture "Staircases" "OlaKristianHoff#stair_straight_open_stringer")
-          stair-w          80
+          stair-w          100
           stair-l          500
-          stair-x          900]
+          stair-x          1000]
 
       ;; ========== BOTTOM LEVEL ==========
       (add-level "bottom" {:elevation 0})
 
-      (let [hl-0         1200
+      (let [hl-0         1400
             bed-l        500
             bed-entry-w  120
             bed-closet-w 75
+            living-w     400
+            bath-w       200
+            bath-l       300
             utility-w    300
             utility-l    400]
         ;; exterior walls
@@ -56,9 +59,9 @@
                     [:x 0          :house-N-0]])
         (if-let [room (create-room :around [:house-E-0 :W])]
           (doto room
-            (.setAreaXOffset 100)
+            (.setAreaXOffset 0)
             (.setName "Bottom Floor")
-            (.setNameXOffset 100)
+            (.setNameXOffset 0)
             (.setNameYOffset -150)
             (.setAreaYOffset -120)))
         (dimension-line :house-E-0 :house-W-0 {:align :outside})
@@ -85,44 +88,45 @@
         (dimension-line :house-E-0 :bedroom-sep-0 {:align :inside})
         (dimension-line :house-N-0 :bedroom-0 {:align :inside})
 
+        ;; living room
+        (add-walls :interior
+                   [[:x `(+ (dim :bedroom-0) ~living-w) :y :house-E-0 :living-S-0]
+                    [:y :house-W-0]])
+        (create-room :around [:living-S-0 :N] :floor wood-floor :name "living")
+        (dimension-line :house-W-0 :house-E-0 {:align :inside :offset (+ bed-l 30)})
+        (dimension-line :bedroom-0 :living-S-0 {:align :inside})
+
         ;; stair
         (add-walls :interior
-                   [[:x :house-S-0 :y (+ ew2 stair-w iw2) :stairs-0-W]
-                    [:x #(- % utility-w)]])
-        (add-walls :virtual
-                   [[:x `(-> :house-S-0 dim (- ~utility-w)) :y :stairs-0-W :stairs-0-N]
-                    [:y 0]])
-        (add-furniture stair {:x        `(-> :house-S-0 dim (- ~utility-w) (+ (/ ~stair-l 2)))
+                   [[:x :house-S-0 :y (+ ew2 stair-w iw2) :stairs-W-0]
+                    [:x :living-S-0]])
+        (add-furniture stair {:x        (+ stair-x (/ stair-l 2))
                               :y        (+ ew2 (/ stair-w 2))
                               :angle    (/ Math/PI 2)
                               :depth    stair-l
                               :mirrored true})
-        (dimension-line :stairs-0-W :house-E-0 {:align :inside})
-
-        ;; utility room
-        (add-walls :interior
-                   [[:x :stairs-0-N :y :stairs-0-W :utility-N-0]
-                    [:y (+ utility-l iw2) :utility-W-0]
-                    [:x :house-S-0]])
-        (create-room :around [:utility-N-0 :S] :floor concrete :name "utility")
-        (add-door door :utility-N-0 (-> 80 (/ 2) (+ iw2 45) (* 1)) {:width 80})
-                                                     ;; ^-- 45cm gap to put shelves or panels on wall 
-        (dimension-line :utility-W-0 :stairs-0-W {:align :inside})
-        (dimension-line :utility-N-0 :house-S-0 {:align :inside})
+        (add-door door :living-S-0 (+ ew2 stair-w iw 45 (/ 80 2)))
+        ;;                                       gap for panel on E wall
+        (dimension-line :stairs-W-0 :house-E-0 {:align :inside})
 
         ;; bath room
         (add-walls :interior
-                   [[:x :utility-N-0 :y :utility-W-0 :bath-N-0]
-                    [:y :house-W-0 ]])
-        (create-room :around [:bath-N-0 :S] :floor bath-floor :name "bath")
-        (add-door door :bath-N-0 (-> 80 (/ 2) (+ ew2 10) (* -1)) {:width 80})
-        (dimension-line :house-W-0 :utility-W-0 {:align :inside})
+                   [[:x :living-S-0 :y (- hw bath-w) :bath-E-0]
+                    [:x #(+ % bath-l) :bath-S-0]
+                    [:y hw]])
+        (create-room :around [:bath-E-0 :W] :floor bath-floor :name "bath")
+        (add-door door :living-S-0 (- hw ew2 10 (/ 80 2)) {:width 80})
+        (dimension-line :bath-E-0 :house-W-0 {:align :inside})
+        (dimension-line :bath-S-0 :living-S-0 {:align :inside :offset 160})
 
 
-        (create-room :around [:bath-N-0 :N] :floor wood-floor :name "living")
-        (add-door door :house-W-0 (-> bed-l (+ 150) (* -1)))
-        (dimension-line :house-W-0 :house-E-0 {:align :inside :offset (+ utility-w 30)})
-        (dimension-line :bedroom-0 :utility-N-0 {:align :inside})
+        ;; utility room
+        (create-room :around [:living-S-0 :S] :floor concrete :name "utility")
+        (add-door door :living-S-0 (+ ew2 (/ stair-w 2)))
+        (dimension-line :living-S-0 :house-S-0 {:align :inside :offset 150})
+        (dimension-line :house-W-0 :stairs-W-0 {:align :inside})
+        (dimension-line :bath-S-0 :house-S-0 {:align :inside})
+
         )
 
       ;; ========== MAIN LEVEL ==========
@@ -131,7 +135,7 @@
       (let [
             ;; length blocks
             greenhouse-w    300
-            living-w        600
+            living-w        700
             kitchen-w       400
             pantry-w        200
             master-closet-w (+ 55 90 55)
@@ -313,7 +317,8 @@
       (sh/delete-walls #(= :virtual (:type %)))
 
       (sh/set-walls-alpha 0.0)
-      (sh/set-level "main")
+      (sh/set-level "bottom")
+      ;; (sh/set-level "main")
       ))
 
   (invoke-ui build))

@@ -242,7 +242,6 @@
   [& args]
   (when true
     (let [points? (-> args count odd?)
-
           {:keys [around
                   floor
                   name] :as opts} (apply hash-map
@@ -385,7 +384,6 @@
 #_ (binding [-eval-key :x]
      (let [wall (-> :house-S-0 get-wall wall-to-clj)]
        (eval `(dim ~wall))))
-
 
 (defn eval-form
   "Resolves wall references and evals form."
@@ -635,14 +633,24 @@
 "Staircases"
 "Vehicles"
 
+(defn center
+  "Returns the center of two points"
+  [p1 p2]
+  (let [avg (fn [a b] (/ (+ a b) 2))
+        x   (avg (:x p1) (:x p2))
+        y   (avg (:y p1) (:y p2))]
+    {:x x :y y}))
+
 (defn add-door
   ([furniture wall distance]
    (add-door furniture wall distance {}))
   ([furniture wall distance {:keys [width] :as opts}]
    (let [{:keys [start end thickness] :as wall} (coerce-wall wall)
          angle                                  (math/points-angle start end)
-         point                                  (if (> distance 0) start end)
-         {:keys [x y] :as center}               (math/move-point point angle distance)
+         {:keys [x y] :as center} (if (= distance :center)
+                                    (center start end)
+                                    (let [point (if (> distance 0) start end)]
+                                      (math/move-point point angle distance)))
          door                                   (HomePieceOfFurniture. furniture)]
      (when width
        (.setWidth door width))
@@ -655,7 +663,7 @@
      door)))
 
 (defn add-furniture
-  [furniture {:keys [x y angle height depth mirrored] :as item}]
+  [furniture {:keys [x y angle height depth width mirrored] :as item}]
   (let [f             (HomePieceOfFurniture. furniture)
         {:keys [x y]} (resolve-walls item {})
         ;;x             (eval-form x :x)
@@ -667,6 +675,7 @@
     (when angle (.setAngle f angle))
     (when height (.setHeight f height))
     (when depth (.setDepth f depth))
+    (when width (.setWidth f width))
     (when mirrored (.setModelMirrored f mirrored))
     (-> @state :home (.addPieceOfFurniture f))
     ))

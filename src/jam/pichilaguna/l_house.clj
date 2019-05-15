@@ -37,6 +37,7 @@
           stair            (load-furniture "Staircases" "OlaKristianHoff#stair_straight_open_stringer")
           stair-w          100
           stair-l          500
+          stair-h          400
           stair-x          1000]
 
       ;; ========== BOTTOM LEVEL ==========
@@ -66,6 +67,7 @@
             (.setAreaYOffset -120)))
         (dimension-line :house-E-0 :house-W-0 {:align :outside})
         (dimension-line :house-N-0 :house-S-0 {:align :outside})
+        (add-door door :house-W-0 (-> bed-l (+ 100 (/ 90 2))(* -1)))
         
         ;; separate bedroom from main room
         (add-walls :interior
@@ -104,6 +106,8 @@
                               :y        (+ ew2 (/ stair-w 2))
                               :angle    (/ Math/PI 2)
                               :depth    stair-l
+                              :height   stair-h
+                              :width    stair-w
                               :mirrored true})
         (add-door door :living-S-0 (+ ew2 stair-w iw 45 (/ 80 2)))
         ;;                                       gap for panel on E wall
@@ -119,14 +123,12 @@
         (dimension-line :bath-E-0 :house-W-0 {:align :inside})
         (dimension-line :bath-S-0 :living-S-0 {:align :inside :offset 160})
 
-
         ;; utility room
         (create-room :around [:living-S-0 :S] :floor concrete :name "utility")
         (add-door door :living-S-0 (+ ew2 (/ stair-w 2)))
         (dimension-line :living-S-0 :house-S-0 {:align :inside :offset 150})
         (dimension-line :house-W-0 :stairs-W-0 {:align :inside})
         (dimension-line :bath-S-0 :house-S-0 {:align :inside})
-
         )
 
       ;; ========== MAIN LEVEL ==========
@@ -156,7 +158,6 @@
             mud-l        guest-bath-l
             mud-w        guest-bath-w
             deck-w       300
-            garage-w     400
             master-w     500
             master-l     400
             default-h    (-> defaults :level :height)
@@ -180,9 +181,6 @@
             (.setName "Main Floor")
             (.setNameYOffset -40)
             (.setNameXOffset -400)))
-
-        ;; entry door
-        (add-door door :house-S-1 (-> hall-w (/ 2) (+ mud-w)) {:width 90})
 
         ;; greenhouse
         (add-walls :interior [[:x greenhouse-w :y 0 :greenhouse] [:y hw]])
@@ -209,18 +207,18 @@
                    [[:x `(-> :living-S dim (+ ~kitchen-w)) :y hw :kitchen-S]
                     [:y :kitchen-E]])
         (create-room :around [:kitchen-N :S] :floor kitchen-floor :name "kitchen")
+        (add-door door :kitchen-S (+ 65 ew2 10 (/ 70 2)))
         (dimension-line :kitchen-N :kitchen-S {:align :center})
         (dimension-line :kitchen-E :house-W-1 {:align :inside})
 
         ;; pantry
         (add-walls :interior
-                   [[:x `(-> :kitchen-S dim (+ ~pantry-w)) :y hw :pantry-S]
-                    [:y #(- % pantry-l)]])
-        (add-walls :virtual
-                   [[:x :kitchen-S :y :kitchen-E]
-                    [:x :pantry-S]])
+                   [[:x :kitchen-S :y (- hw pantry-l) :pantry-E]
+                    [:x #(+ % pantry-w) :pantry-S]
+                    [:y hw]])
         (create-room :around [:pantry-S :N] :floor kitchen-floor :name "pantry")
         (dimension-line :kitchen-S :pantry-S {:align :center})
+        (add-door door :pantry-E :center)
 
         ;; master bath
         (add-walls :interior
@@ -244,29 +242,35 @@
         (create-room :around [:master-closet-W :W] :floor wood-floor :name "bedroom")
         (add-door door :master-N-1 (/ master-w 2))
 
-        ;; entry/mud
-        (add-walls :interior [[:x (- hl mud-l) :y 0 :mud-N] [:y mud-w]])
-        (add-walls :virtual [[:x :mud-N :y mud-w] [:y :master-bath-E]])
-        (create-room :around [:mud-N :S] :floor gray-stone-floor :name "entry")
-        
         ;; guest bath
-        (add-walls :interior [[:x :mud-N :y guest-bath-w :guest-bath-W]
-                              [:x #(- % guest-bath-l)]
-                              [:y 0]])
-        (create-room :around [:guest-bath-W :E] :floor bath-floor :name "bath")
-        (dimension-line :guest-bath-W :house-E-1 {:align :center})
-        (dimension-line :master-bath-E :guest-bath-W {:align :center})
-        (add-door door :guest-bath-W (-> guest-bath-l (/ 2)) {:width 70})
+        (add-walls :interior [[:x (- hl guest-bath-w) :y 0 :guest-bath-N]
+                              [:y :master-bath-E]])
+        (create-room :around [:guest-bath-N :S] :floor gray-stone-floor :name "bath")
+        (dimension-line :guest-bath-N :house-S-1 {:align :center})
+        (dimension-line :master-bath-E :house-E-1 {:align :center :offset 75})
+        (add-door door :guest-bath-N :center {:width 70})
+
+        ;; entry
+        (add-door door :house-E-1 (-> master-closet-w (/ 2) (+ master-bath-w) (* -1)) {:width 90})
+        (add-walls :virtual [[:x :pantry-S :y 0 :entry-N] [:y :master-bath-E]])
+        (create-room :around [:entry-N :S] :floor gray-stone-floor :name "entry")
 
         ;; hallway
-        (create-room :around [:guest-bath-W :W] :floor wood-floor :name "hall")
+        (create-room :around [:entry-N :N] :floor wood-floor :name "hall")
 
         ;; stair
         (add-furniture stair {:x        (+ stair-x (/ stair-l 2))
                               :y        (+ ew2 (/ stair-w 2))
                               :angle    (/ Math/PI 2)
                               :depth    stair-l
+                              :width    stair-w
+                              :height   stair-h
                               :mirrored true})
+
+        ;; car port
+        #_ (add-walls :exterior
+                   [[:x :entry-N :y 0 :height master-h]
+                    [:y #(- % 500)]])
 
         ;; deck
         (add-walls :virtual [[:x :house-N-1 :y :house-W-1 :deck-N]
@@ -278,47 +282,47 @@
         (create-room :around [:house-W-1 :W] :floor gray-stone-floor :name  "deck")
         (dimension-line :deck-W :house-W-1 {:align :center})
         (dimension-line :deck-W :house-E-1 {:align :outside})
-
-        ;; garage
-        (add-walls :virtual
-                   [[:x :house-S-1 :y 0 :garage-E]
-                    [:x #(+ % garage-w) :garage-S]
-                    [:y hw]
-                    [:x :house-S-1]])
-        (create-room :around [:house-S-1 :S] :floor concrete :name "car port")
-        (dimension-line :house-S-1 :garage-S {:align :center})
         )
 
 
       ;; ========== LOFT ==========
       (add-level "loft" {:elevation 600})
-      (let [peak-x      1700
-            peak-h      325
-            s-wall-h    200
+      (let [peak-x      1400
+            peak-h      370
+            s-wall-h    250
             front-angle (Math/atan2 peak-h peak-x)
-            loft-start  900
+            loft-start  1000
+            loft-w      400
             loft-N-h    (-> front-angle Math/tan (* loft-start))]
         (add-walls :exterior {:closed? true}
                    [[:x 0 :y 0 :height 0 :house-E-2]
                     [:x peak-x :height peak-h]
-                    [:x :garage-S :height s-wall-h]
+                    [:x :house-S-1 :height s-wall-h]
                     [:y :house-W-0]
                     [:x peak-x :height peak-h]
                     [:x 0 :height 0]])
         (add-walls :interior
+                   [[:x (+ loft-start loft-w) :y hw :height peak-h :office-N]
+                    [:y 200]
+                    [:x #(+ % 200) :height (- peak-h (* 200 (/ (- peak-h s-wall-h) 600))) :maker-hall]
+                    [:y 0]])
+        (add-door door :maker-hall (-> 80 (/ 2) (+ ew2 10) (* -1)))
+
+        (add-walls :virtual
                    [[:x loft-start :y 0 :height loft-N-h :loft-N]
                     [:y hw]])
         (create-room :around [:loft-N :S] :floor wood-floor :name "loft")
-        (dimension-line :house-N-1 :loft-N {:align :center})
-        (dimension-line :loft-N :garage-S {:align :center :from :end})
-        (dimension-line :house-W-1 :house-E-1 {:align :center :from :end})
+        (create-room :around [:office-N :S] :floor wood-floor :name "maker space")
+        #_ (dimension-line :house-N-1 :loft-N {:align :center})
+        #_ (dimension-line :loft-N :house-S-1 {:align :center :from :end})
+        #_ (dimension-line :house-W-1 :house-E-1 {:align :center :from :end})
         )
 
       (sh/delete-walls #(= :virtual (:type %)))
 
       (sh/set-walls-alpha 0.0)
-      (sh/set-level "bottom")
-      ;; (sh/set-level "main")
+      #_ (sh/set-level "bottom")
+      #_ (sh/set-level "main")
       ))
 
   (invoke-ui build))

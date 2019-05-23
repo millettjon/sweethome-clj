@@ -6,7 +6,7 @@
             [clojure.test :refer [deftest is are]]
             [jam.sweethome3d.math-wrap :as math])
   (:import [com.eteks.sweethome3d.model Level Wall Room DimensionLine HomeTexture CatalogTexture
-            HomePieceOfFurniture]
+            HomePieceOfFurniture HomeDoorOrWindow]
            jam.sweethome3d.NReplPlugin
            java.util.concurrent.Callable
            com.eteks.sweethome3d.viewcontroller.ThreadedTaskController
@@ -270,6 +270,25 @@
                                           extension)]
     (-> @state :home (.addDimensionLine line))))
 
+(defn dimension-lines-box
+  "Adds dimension lines for a box."
+  [{:keys [points walls] :as box}]
+  (let [[p0 p1 p2 p3] points
+        extension     (if walls
+                        (case (:type walls)
+                          :outside -25
+                          20)
+                        20)
+
+        line1 (DimensionLine. (p0 :x) (p0 :y)
+                              (p1 :x) (p1 :y)
+                              extension)
+        line2 (DimensionLine. (p1 :x) (p1 :y)
+                              (p2 :x) (p2 :y)
+                              extension)]
+    (doseq [line [line1 line2]]
+      (-> @state :home (.addDimensionLine line)))))
+
 ;; Inspect selected element
 (defn inspect-selected
   "Inspects the selected item."
@@ -492,7 +511,9 @@
   ([wall-type points]
    (add-walls wall-type {} points))
   ([wall-type {:keys [closed? start-at] :as properties} points]
-   (let [normalize (fn [points a]
+   (let [wall-type (or wall-type (-> @state :defaults :wall :default))
+         ;; _ (prn "add-walls: wall-type" wall-type)
+         normalize (fn [points a]
                      (let [;; convert to map, extract name if present
                            point (if (odd? (count a))
                                    (assoc (apply hash-map (butlast a))
@@ -519,8 +540,10 @@
                      (concat points [(first points)])
                      points)
          make-wall (fn [[p1 p2]]
+                     #_ (prn "make-wall: p1 p2" p1 p2)
                      (let [thickness (or (:thickness p1)
                                          (-> @state :defaults :wall wall-type :thickness))
+                           ;; _ (prn "make-wall: thickness" thickness)
                            ;;[p1 p2] (align-wall (assoc p1 :thickness thickness) p2)
                            wall    (Wall. (:x p1) (:y p1)
                                           (:x p2) (:y p2)
@@ -617,6 +640,9 @@
         furniture  (->> category .getFurniture (filter #(= id (.getId %))) first)]
     furniture))
 ;; (doseq [category categories] (prn (.getName category)))
+;;
+;; -? what is the proper way to load a door or window?
+;;
 
 ;; Categories
 "Bathroom"
@@ -634,6 +660,19 @@
 "Vehicles"
 
 (defn center
+  "Returns the center of points."
+  [points]
+  (let [avg    (fn [nums]
+                 (/ (apply + nums) (count nums)))
+        points (filter #(not (nil? %)) points)
+        x      (->> points (map :x) avg)
+        y      (->> points (map :y) avg)]
+    {:x x :y y}))
+#_ (let [points [nil {:x 300, :y 160} {:x 300, :y 250} nil]]
+     (center points))
+
+
+#_ (defn center
   "Returns the center of two points"
   [p1 p2]
   (let [avg (fn [a b] (/ (+ a b) 2))
@@ -647,20 +686,43 @@
   ([furniture wall distance {:keys [width] :as opts}]
    (let [{:keys [start end thickness] :as wall} (coerce-wall wall)
          angle                                  (math/points-angle start end)
-         {:keys [x y] :as center} (if (= distance :center)
-                                    (center start end)
-                                    (let [point (if (> distance 0) start end)]
-                                      (math/move-point point angle distance)))
-         door                                   (HomePieceOfFurniture. furniture)]
-     (when width
-       (.setWidth door width))
+         {:keys [x y] :as center}               (if (= distance :center)
+                                                  (center start end)
+                                                  (let [point (if (> distance 0) start end)]
+                                                    (math/move-point point angle distance)))
+         door                                   (HomeDoorOrWindow. furniture)
+         ]
      (doto door
-       (.setDepth thickness)
+       (.setDepth (+ thickness 4)) ; note: sweethome3d adds 4 to wall thickness to ensure cutout
        (.setAngle angle)
        (.setX x)
        (.setY y))
      (-> @state :home (.addPieceOfFurniture door))
+     ;; Note: Have to adjust width after adding the door to the home.
+     ;; This is required since adjusting the width fires an event that
+     ;; is picked up by the wall? to adjust the cutout size accordingly.
+     (when width
+       (.setWidth door width))
      door)))
+
+(defn add-door2
+  [{:keys [furniture width points] :as door} wall]
+  (let [door                                   (HomeDoorOrWindow. furniture)
+        {:keys [start end thickness] :as wall} (coerce-wall wall)
+        angle                                  (math/points-angle start end)
+        {:keys [x y]} (center points)]
+    (doto door
+      (.setDepth (+ thickness 10)) ; note: sweethome3d adds 4 to wall thickness to ensure cutout
+      (.setAngle angle)
+      (.setX x)
+      (.setY y))
+    (-> @state :home (.addPieceOfFurniture door))
+    ;; Note: Have to adjust width after adding the door to the home.
+    ;; This is required since adjusting the width fires an event that
+    ;; is picked up by the wall? to adjust the cutout size accordingly.
+    (when width
+      (.setWidth door width))
+    door))
 
 (defn add-furniture
   [furniture {:keys [x y angle height depth width mirrored] :as item}]

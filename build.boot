@@ -21,6 +21,7 @@
 (deftask dev
   []
   (comp
+   (repl)
    (javac)
    (watch)
    (speak)

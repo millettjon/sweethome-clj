@@ -1,7 +1,5 @@
 HOUSE
 - metal structure meeting
-- review dimensions on house design
-- get string and long tape measure (or huincha laser) for staking out plot
 - reach out to neigbors about fence
 - reach out about getting point cloud
 
@@ -15,7 +13,6 @@ HOUSE
 kicad - electronic design, circuits
 openscad
 leocad - for building lego designs
-
 
 
 librecad - can't open file

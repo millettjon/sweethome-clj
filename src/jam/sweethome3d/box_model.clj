@@ -317,7 +317,6 @@
                      (let [align-to      (second align)
                            pp            (->> parent :points (some identity))
                            [p0 p1 p2 p3] (target :points)]
-                       (prn p0 p1 p2 p3)
                        (case align-to
                          :center (case (:on parent)
                                    (:left :right) [{:x (pp :x)
@@ -328,16 +327,29 @@
                  (let [points (draw-box (assoc door :d width) context)]
                    (nilify-partial-points points)))]
     (if points
-      (let [_       (prn "parse-element-door: points" points)
-            door    (assoc door :points points)
+      (let [door    (assoc door :points points)
             sh-door (when-sh
                         (let [wall (parent :sh)]
                           (sh/add-door2 door wall)))
             door    (assoc door :sh sh-door)])
       (do
-        (prn "parse-element-door: saving unresolved")
+        #_ (prn "parse-element-door: saving unresolved")
         (swap! state update-in [:unresolved-elements] conj [door context])
         door))))
+
+(defmethod parse-element :_
+  [{:keys [furniture width depth height angle mirrored] :as furn}
+   {:keys [parent sibling] :as context}]
+  (assert (empty? (:children furn)))
+  (let [points (draw-box furn context)
+        furn   (assoc furn :points points)]
+    (when-sh
+        (sh/add-furniture furniture
+                          (merge furn (sh/center points))))
+    furn))
+
+;; --------------------------------------------------
+;; HOUSE
 
 (when-sh
     (let [defaults {:level {:total-height 300        ; total height
@@ -354,14 +366,73 @@
              wood-floor    {:floor {:texture ["Floor" "eTeksScopia#english-parquet-1" :angle 90]}}
              bath-floor    {:floor {:texture ["Floor" "OlaKristianHoff#beige_tiles"]}}
              kitchen-floor {:floor {:texture ["Floor" "OlaKristianHoff#beige_brown_tiles"]}}
+
              ;; concrete         {:texture ["Wall"  "eTeksScopia#concrete-wall-1"]}
-             door          (sh/load-furniture "Doors and windows" "eTeks#doorFrame")
-             door100       {:width 100 :height 206 :furniture door}
-             door90        {:width 90 :height 206 :furniture door}
-             door70        {:width 70 :height 206 :furniture door}
-             center        {:align :center}
-             outside       {:type :outside}]
+             door    (sh/load-furniture "Doors and windows" "eTeks#doorFrame")
+             door100 {:width 100 :height 206 :furniture door}
+             door70  {:width 70 :height 206 :furniture door}
+             door80  {:width 80 :height 206 :furniture door}
+             door90  {:width 90 :height 206 :furniture door}
+             center  {:align :center}
+             stair   {:width     100
+                      :depth     500
+                      :height    400
+                      :angle (/ Math/PI 2)
+                      :mirrored true
+                      :furniture (sh/load-furniture "Staircases" "OlaKristianHoff#stair_straight_open_stringer")}
+             outside {:type :outside}]
          (sh/clean-home)
+         (parse
+          [:level#bottom {:elevation 0}
+           [:box {:width 620 :length 1500 :fill :right}
+            ;; bedrooms
+            [:box {:d 500 :fill :forward}
+             [:wall.back outside]
+             [:wall.left outside]
+             [:wall.front outside]
+             [:box#bed-e {:d 310}
+              [:wall.front]
+              [:wall.right {:fill :forward}
+               [:box {:d 20}]
+               [:door door80]]]
+             [:box#bed-w {:d 310}
+              [:wall.right {:fill :backward}
+               [:box {:d 20}]
+               [:door door80]]
+              ]]
+
+            ;; living
+            [:box#living {:d 400}
+             [:wall.back outside]
+             [:wall.front outside {:fill :right}
+              [:box {:d 20}]
+              [:door door90]]]
+
+            ;; stair/utility/bath block
+            [:box {:d 600 :fill :forward}
+             [:wall.back outside]
+             [:box#stair-well {:d 120 :fill :right}
+              [:wall.front]
+              [:wall.right outside]
+              [:wall.left
+               [:door door90 {:align :center}]]
+              [:box {:d 100}] ; landing
+              [:_ stair {:d 500}]]
+             [:box {:d 500 :fill :right}
+              [:box {:d 400 :fill :forward}
+               [:wall.right outside]
+               [:box#utility {:d 300}
+                [:wall.left {:fill :forward}
+                 [:box {:d 40}]
+                 [:door door90]]]
+               [:box {:d 200 :fill :right}
+                [:box#bath {:d 400}
+                 [:wall.back]
+                 [:wall.front outside]
+                 [:wall.left {:fill :backward}
+                  [:box {:d 20}]
+                  [:door door80]]]
+                ]]]]]])
          (parse 
           [:level#main {:elevation 300}
            [:box {:width (+ 620 500) :length 2000 :fill :forward}
@@ -390,9 +461,8 @@
                  [:door door70 center]]]
                [:box#mud {:d 290} stone-floor]
                [:box {:d 600 :fill :forward}
-                [:box#stair {:d 100} wood-floor
-                 ;;[:stair {:d}]
-                 ]
+                [:box#stair {:d 100 :fill :right} wood-floor
+                 [:_ stair {:d 500}]]
                 [:box#hallway {:d 120} wood-floor]]]
               [:box {:d 400 :fill :right}
                [:box#kitchen {:d 400} kitchen-floor]
@@ -432,9 +502,8 @@
     [:post]
     ]
 
-
+;; TODO: stairs have wrong size in plan view
 ;; TODO: fix checking that children are < that size of parent
-;; TODO: add stairs
 ;; TODO: add furniture
 ;; TODO: add windows
 ;; TODO: add other levels

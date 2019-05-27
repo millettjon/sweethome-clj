@@ -251,6 +251,7 @@
           room (if points?
                  (create-room-from-points (first args))
                  (create-room-around opts))]
+      (.setCeilingVisible room false)
       (when name
         (.setName room name))
       (when floor

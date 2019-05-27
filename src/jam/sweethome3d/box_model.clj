@@ -264,41 +264,50 @@
     (parse-children box)))
 
 (defmethod parse-element :wall
-  [{:keys [type on align d] :as wall}
+  [{:keys [type on align d height] :as wall}
    {:keys [parent sibling] :as context}]
   (assert (not (nil? parent)))
   (assert (not (nil? on)))
-  (let [points (:points parent)
-        points (case on
-                 ;; A wall uses only 2 of the 4 corner points.
-                 ;; Calculate whih 2 keeping all 4 in clockwise order from 1 (upper left) 1 to 4 (lower left).
-                 :right (let [[p2 p3 :as v] (subvec points 1 3)
-                              [pa pb]       (case align
-                                              :back  [p2 (p+ p2 {:y d})]
-                                              :front [(p- p3 {:y d}) p3]
-                                              nil    v)]
-                          [nil pa pb nil])
-                 :left  (let [[p4 p1 :as v] [(last points) (first points)]
-                              [pa pb]       (case align
-                                              :back  [(p+ p1 {:y d}) p1]
-                                              :front [p4 (p- p4 {:y d})]
-                                              nil    v)]
-                          [pb nil nil pa])
-                 :back  (let [[p1 p2 :as v] (subvec points 0 2)
-                              [pa pb]       (case align
-                                              :left  [p1 (p+ p1 {:x d})]
-                                              :right [(p- p2 {:x d}) p1]
-                                              nil    v)]
-                          [pa pb nil nil])
-                 :front (let [[p3 p4 :as v] (subvec points 2 4)
-                              [pa pb]       (case align
-                                              :left  [(p+ p4 {:x d}) p4]
-                                              :right [p3 (p- p3 {:x d})]
-                                              nil    v)]
-                          [nil nil pa pb]))
-        wall   (assoc wall
-                      :points points
-                      :sh (when-sh (first (sh/add-walls type (points-map-to-list (filter identity points))))))]
+  (let [points  (:points parent)
+        points  (case on
+                  ;; A wall uses only 2 of the 4 corner points.
+                  ;; Calculate whih 2 keeping all 4 in clockwise order from 1 (upper left) 1 to 4 (lower left).
+                  :right (let [[p2 p3 :as v] (subvec points 1 3)
+                               [pa pb]       (case align
+                                               :back  [p2 (p+ p2 {:y d})]
+                                               :front [(p- p3 {:y d}) p3]
+                                               nil    v)]
+                           [nil pa pb nil])
+                  :left  (let [[p4 p1 :as v] [(last points) (first points)]
+                               [pa pb]       (case align
+                                               :back  [(p+ p1 {:y d}) p1]
+                                               :front [p4 (p- p4 {:y d})]
+                                               nil    v)]
+                           [pb nil nil pa])
+                  :back  (let [[p1 p2 :as v] (subvec points 0 2)
+                               [pa pb]       (case align
+                                               :left  [p1 (p+ p1 {:x d})]
+                                               :right [(p- p2 {:x d}) p1]
+                                               nil    v)]
+                           [pa pb nil nil])
+                  :front (let [[p3 p4 :as v] (subvec points 2 4)
+                               [pa pb]       (case align
+                                               :left  [(p+ p4 {:x d}) p4]
+                                               :right [p3 (p- p3 {:x d})]
+                                               nil    v)]
+                           [nil nil pa pb]))
+        fpoints (->> points (filter identity) (into []))
+        fpoints (cond (number? height) (assoc-in fpoints [0 :height] height)
+                      (vector? height) (-> fpoints
+                                           (assoc-in [0 :height] (get height 0))
+                                           (assoc-in [1 :height] (get height 1)))
+                      :else            fpoints)
+        ;;_       (prn "fpoints=" fpoints)
+        ;;_       (prn (points-map-to-list fpoints))
+
+        wall (assoc wall
+                    :points points
+                    :sh (when-sh (first (sh/add-walls type (points-map-to-list fpoints)))))]
     (parse-children wall)))
 
 (defmethod parse-element :door
@@ -366,8 +375,8 @@
              wood-floor    {:floor {:texture ["Floor" "eTeksScopia#english-parquet-1" :angle 90]}}
              bath-floor    {:floor {:texture ["Floor" "OlaKristianHoff#beige_tiles"]}}
              kitchen-floor {:floor {:texture ["Floor" "OlaKristianHoff#beige_brown_tiles"]}}
+             concrete-floor  {:floor {:texture ["Wall"  "eTeksScopia#concrete-wall-1"]}}
 
-             ;; concrete         {:texture ["Wall"  "eTeksScopia#concrete-wall-1"]}
              door    (sh/load-furniture "Doors and windows" "eTeks#doorFrame")
              door100 {:width 100 :height 206 :furniture door}
              door70  {:width 70 :height 206 :furniture door}
@@ -377,8 +386,8 @@
              stair   {:width     100
                       :depth     500
                       :height    400
-                      :angle (/ Math/PI 2)
-                      :mirrored true
+                      :angle     (/ Math/PI 2)
+                      :mirrored  true
                       :furniture (sh/load-furniture "Staircases" "OlaKristianHoff#stair_straight_open_stringer")}
              outside {:type :outside}]
          (sh/clean-home)
@@ -390,19 +399,19 @@
              [:wall.back outside]
              [:wall.left outside]
              [:wall.front outside]
-             [:box#bed-e {:d 310}
+             [:box#bed-e {:d 310} wood-floor
               [:wall.front]
               [:wall.right {:fill :forward}
                [:box {:d 20}]
                [:door door80]]]
-             [:box#bed-w {:d 310}
+             [:box#bed-w {:d 310} wood-floor
               [:wall.right {:fill :backward}
                [:box {:d 20}]
                [:door door80]]
               ]]
 
             ;; living
-            [:box#living {:d 400}
+            [:box#living {:d 400} wood-floor
              [:wall.back outside]
              [:wall.front outside {:fill :right}
               [:box {:d 20}]
@@ -411,7 +420,7 @@
             ;; stair/utility/bath block
             [:box {:d 600 :fill :forward}
              [:wall.back outside]
-             [:box#stair-well {:d 120 :fill :right}
+             [:box#stair-well {:d 120 :fill :right} wood-floor
               [:wall.front]
               [:wall.right outside]
               [:wall.left
@@ -421,12 +430,12 @@
              [:box {:d 500 :fill :right}
               [:box {:d 400 :fill :forward}
                [:wall.right outside]
-               [:box#utility {:d 300}
+               [:box#utility {:d 300} concrete-floor
                 [:wall.left {:fill :forward}
                  [:box {:d 40}]
                  [:door door90]]]
                [:box {:d 200 :fill :right}
-                [:box#bath {:d 400}
+                [:box#bath {:d 400} bath-floor
                  [:wall.back]
                  [:wall.front outside]
                  [:wall.left {:fill :backward}
@@ -450,7 +459,7 @@
               [:door door100 {:align [:greenhouse :center]}]]
 
              [:box#greenhouse {:d 300} stone-floor
-              [:wall.right {:fill :forward}
+              [:wall.right outside {:fill :forward}
                [:door door90 {:align [:hallway :center]}]]]
 
              [:box#living-room {:d 700} wood-floor]
@@ -481,16 +490,45 @@
 
             ;; master wing and deck
             [:box {:d 500 :fill :left}
-             [:box#bedroom {:d 400} wood-floor
+             [:box#bedroom {:d 500} wood-floor
               [:wall.back [:door door90 {:align [:closet :center]}]]
               [:wall.right outside]
-              [:wall.left outside
+              [:wall.left outside {:height 325}
                [:door door90 {:align [:deck :center]}]]
-              [:wall.front outside]]
-             [:box {:d 1600 :fill :forward}
-              [:box#deck {:d 300} stone-floor]
-              [:box {:d 200 :fill :left}
-               [:box#landing {:d 100} stone-floor]]]]]])))))
+              [:wall.front outside {:height [275 325]}]]
+             [:box {:d 1500 :fill :forward}
+              [:box#deck {:d 320} stone-floor]
+              [:box {:d 180 :fill :left}
+               [:box#landing {:d 100} stone-floor]]]]]])
+
+         ;; loft
+         (parse
+          [:level#loft {:elevation 600}
+           [:box {:width 620 :length 2000 :fill :right}
+            [:wall.back outside {:height [-0.5 (* 100 20 1/5)]}]
+            [:wall.front outside {:height [(* 100 20 1/5) -0.5]}]
+            [:wall.right outside {:height (* 100 20 1/5)}]
+
+            [:box {:d 1000}]
+            [:box#loft {:d 1000 :fill :right} wood-floor
+             ;; [:wall.back outside {:height [100 150]}]
+             ;;[:wall.front outside]
+             ;;[:wall.right outside]
+             [:box {:d 400 :fill :forward}
+              [:box {:d 120}]
+              ;; tele novela room
+              [:box#novela {:d 500} wood-floor
+               [:wall.right {:fill :forward}
+                [:box {:d 20}]
+                [:door door90]]]]
+             ;; art room
+             [:box#art-room {:d 600 :fill :forward} wood-floor
+              [:box {:d 120 :fill :right}
+               [:box {:d 200}
+                [:wall.right
+                 [:door door90 {:align :center}]]
+                [:wall.front]
+                ]]]]]])))))
 
 #_ [:wall.front {:type :outside :fill :right}
     [:segment {:d 1600}] <- wall segment that takes texture etc...
@@ -501,6 +539,8 @@
     [:window]
     [:post]
     ]
+
+;; ? Remove ceilings in open areas?
 
 ;; TODO: stairs have wrong size in plan view
 ;; TODO: fix checking that children are < that size of parent

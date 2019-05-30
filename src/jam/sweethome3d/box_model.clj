@@ -371,7 +371,10 @@
       (swap! sh/state assoc :defaults defaults))
   (sh/invoke-ui
      (fn []
-       (let [stone-floor   {:floor {:texture ["Floor" "eTeksScopia#multi-grey-stones-floor-tiles"]}}
+       (let [hw 700  ;; 720= 6*120, 3*240
+             hl 2000 ;;hl 2040= 17*120, 8.5*240
+
+             stone-floor   {:floor {:texture ["Floor" "eTeksScopia#multi-grey-stones-floor-tiles"]}}
              wood-floor    {:floor {:texture ["Floor" "eTeksScopia#english-parquet-1" :angle 90]}}
              bath-floor    {:floor {:texture ["Floor" "OlaKristianHoff#beige_tiles"]}}
              kitchen-floor {:floor {:texture ["Floor" "OlaKristianHoff#beige_brown_tiles"]}}
@@ -393,18 +396,18 @@
          (sh/clean-home)
          (parse
           [:level#bottom {:elevation 0}
-           [:box {:width 620 :length 1500 :fill :right}
+           [:box {:width hw :length 1500 :fill :right}
             ;; bedrooms
             [:box {:d 500 :fill :forward}
              [:wall.back outside]
              [:wall.left outside]
              [:wall.front outside]
-             [:box#bed-e {:d 310} wood-floor
+             [:box#bed-e {:d (/ hw 2)} wood-floor
               [:wall.front]
               [:wall.right {:fill :forward}
                [:box {:d 20}]
                [:door door80]]]
-             [:box#bed-w {:d 310} wood-floor
+             [:box#bed-w {:d (/ hw 2)} wood-floor
               [:wall.right {:fill :backward}
                [:box {:d 20}]
                [:door door80]]
@@ -418,7 +421,7 @@
               [:door door90]]]
 
             ;; stair/utility/bath block
-            [:box {:d 600 :fill :forward}
+            [:box {:d hw :fill :forward}
              [:wall.back outside]
              [:box#stair-well {:d 120 :fill :right} wood-floor
               [:wall.front]
@@ -427,10 +430,10 @@
                [:door door90 {:align :center}]]
               [:box {:d 100}] ; landing
               [:_ stair {:d 500}]]
-             [:box {:d 500 :fill :right}
+             [:box {:d (- hw 120) :fill :right}
               [:box {:d 400 :fill :forward}
                [:wall.right outside]
-               [:box#utility {:d 300} concrete-floor
+               [:box#utility {:d (- hw 120 200)} concrete-floor
                 [:wall.left {:fill :forward}
                  [:box {:d 40}]
                  [:door door90]]]
@@ -444,8 +447,8 @@
                 ]]]]]])
          (parse 
           [:level#main {:elevation 300}
-           [:box {:width (+ 620 500) :length 2000 :fill :forward}
-            [:box#main-wing {:d     620
+           [:box {:width (+ hw 500) :length hl :fill :forward}
+            [:box#main-wing {:d     hw
                              :fill  :right
                              :label {:dy -400}}
 
@@ -453,7 +456,7 @@
              [:wall.back outside
               [:door door100 {:align [:closet :center]}]]
              [:wall.right outside]
-             [:wall.front outside {:align :left :d 1600 :fill :right}
+             [:wall.front outside {:align :left :d (- hl 500) :fill :right}
               [:box {:d 400}]
               [:door door100]
               [:door door100 {:align [:greenhouse :center]}]]
@@ -464,16 +467,16 @@
 
              [:box#living-room {:d 700} wood-floor]
              [:box {:d 1000 :fill :forward}
-              [:box {:d 220 :fill :left}
+              [:box {:d 250 :fill :left}
                [:box#bath {:d 110} bath-floor
                 [:wall.left
-                 [:door door70 center]]]
+                 [:door door70 {:align [:hallway :center]}]]]
                [:box#mud {:d 290} stone-floor]
                [:box {:d 600 :fill :forward}
-                [:box#stair {:d 100 :fill :right} wood-floor
+                [:box#stair {:d 110 :fill :right} wood-floor
                  [:_ stair {:d 500}]]
-                [:box#hallway {:d 120} wood-floor]]]
-              [:box {:d 400 :fill :right}
+                [:box#hallway {:d 140} wood-floor]]]
+              [:box {:d 450 :fill :right}
                [:box#kitchen {:d 400} kitchen-floor]
                [:box#pantry {:d 200} kitchen-floor
                 [:wall.left {:fill :backward}
@@ -504,20 +507,17 @@
          ;; loft
          (parse
           [:level#loft {:elevation 600}
-           [:box {:width 620 :length 2000 :fill :right}
+           [:box {:width hw :length hl :fill :right}
             [:wall.back outside {:height [-0.5 (* 100 20 1/5)]}]
             [:wall.front outside {:height [(* 100 20 1/5) -0.5]}]
             [:wall.right outside {:height (* 100 20 1/5)}]
 
             [:box {:d 1000}]
             [:box#loft {:d 1000 :fill :right} wood-floor
-             ;; [:wall.back outside {:height [100 150]}]
-             ;;[:wall.front outside]
-             ;;[:wall.right outside]
              [:box {:d 400 :fill :forward}
               [:box {:d 120}]
               ;; tele novela room
-              [:box#novela {:d 500} wood-floor
+              [:box#novela {:d (- hw 120)} wood-floor
                [:wall.right {:fill :forward}
                 [:box {:d 20}]
                 [:door door90]]]]
